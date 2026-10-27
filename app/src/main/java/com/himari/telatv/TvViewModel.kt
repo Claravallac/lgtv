@@ -13,7 +13,9 @@ import com.himari.telatv.data.Ssap
 import com.himari.telatv.data.ToggleFlow
 import com.himari.telatv.data.TvException
 import com.himari.telatv.net.TvClient
+import com.himari.telatv.net.TvDiscovery
 import java.util.concurrent.Executors
+import kotlin.concurrent.thread
 
 data class UiState(
     val host: String = "",
@@ -21,7 +23,9 @@ data class UiState(
     val busy: Boolean = false,          // pareando ou alternando a tela
     val message: String? = null,        // erro, aviso ou instrução
     val screenOff: Boolean? = null,     // último estado conhecido da tela (null = desconhecido)
-    val spotifyOnTv: Boolean = true
+    val spotifyOnTv: Boolean = true,
+    val searching: Boolean = false,     // procurando a TV na rede
+    val found: List<String> = emptyList() // IPs de TVs LG achadas
 )
 
 /**
@@ -69,6 +73,28 @@ class TvViewModel(app: Application) : AndroidViewModel(app) {
                 closeClient()
                 update { it.copy(host = host, paired = prefs.clientKey != null) }
                 fail(e)
+            }
+        }
+    }
+
+    /** Procura TVs LG na rede (SSDP) numa thread própria, sem travar a fila de comandos. */
+    fun discover() {
+        if (ui.searching) return
+        update { it.copy(searching = true, found = emptyList(), message = null) }
+        thread {
+            val ips = try {
+                TvDiscovery.find(getApplication<Application>())
+            } catch (e: Exception) {
+                emptyList()
+            }
+            update {
+                it.copy(
+                    searching = false,
+                    found = ips,
+                    message = if (ips.isEmpty())
+                        "Nenhuma TV encontrada. Confira se o celular está no mesmo Wi‑Fi da TV (e a TV ligada), ou digite o IP."
+                    else it.message
+                )
             }
         }
     }

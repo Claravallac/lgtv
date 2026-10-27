@@ -50,7 +50,9 @@ class TvSessionTest {
 
     @Test fun erro401ViraMensagemClara() {
         val s = fake("""{"type":"error","id":"req_1","error":"401 insufficient permissions","payload":{}}""")
-        assertTrue(falha { s.request("ssap://x/y", null, 2_000) }.contains("permissão"))
+        val msg = falha { s.request("ssap://x/y", null, 2_000) }
+        assertTrue(msg.contains("permissão"))
+        assertTrue(msg.contains("[x/y]"))   // diz qual comando foi negado
     }
 
     @Test fun returnValueFalsoViraErro() {

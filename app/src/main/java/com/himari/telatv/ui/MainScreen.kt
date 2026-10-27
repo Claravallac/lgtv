@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -26,6 +28,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -46,6 +49,11 @@ import com.himari.telatv.data.RemoteCommand
 fun MainScreen(vm: TvViewModel) {
     val ui = vm.ui
     var hostText by rememberSaveable { mutableStateOf(ui.host) }
+
+    // Primeiro uso: já procura a TV sozinho.
+    LaunchedEffect(Unit) { if (!ui.paired && ui.host.isBlank()) vm.discover() }
+    // Achou exatamente uma TV e o campo está vazio: preenche.
+    LaunchedEffect(ui.found) { if (hostText.isBlank() && ui.found.size == 1) hostText = ui.found[0] }
 
     Scaffold { inner ->
         Column(
@@ -127,10 +135,24 @@ private fun SetupCard(vm: TvViewModel, ui: UiState, hostText: String, onHost: (S
                 if (ui.paired) "Configuração" else "Primeiro uso",
                 style = MaterialTheme.typography.titleMedium
             )
+            OutlinedButton(onClick = vm::discover, enabled = !ui.searching && !ui.busy) {
+                if (ui.searching) {
+                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Procurando a TV…")
+                } else {
+                    Text("Buscar TV na rede")
+                }
+            }
+            ui.found.forEach { ip ->
+                FilledTonalButton(onClick = { onHost(ip); vm.pair(ip) }, enabled = !ui.busy) {
+                    Text("Parear com a TV LG $ip")
+                }
+            }
             OutlinedTextField(
                 value = hostText,
                 onValueChange = onHost,
-                label = { Text("IP da TV") },
+                label = { Text("IP da TV (ou digite, se a busca não achar)") },
                 supportingText = { Text("Na TV: Configurações › Rede (use IP fixo no roteador)") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
@@ -147,6 +169,12 @@ private fun SetupCard(vm: TvViewModel, ui: UiState, hostText: String, onHost: (S
                 Text("Abrir o Spotify da TV ao apagar a tela", Modifier.weight(1f))
                 Switch(checked = ui.spotifyOnTv, onCheckedChange = vm::setSpotifyOnTv)
             }
+            val version = try {
+                ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName
+            } catch (e: Exception) {
+                null
+            }
+            if (version != null) Text("TelaTV v$version", style = MaterialTheme.typography.bodySmall)
             if (Shortcuts.canPin(ctx)) {
                 OutlinedButton(onClick = {
                     val ok = Shortcuts.requestPin(ctx)

@@ -47,7 +47,7 @@ class TvSession(private val send: (String) -> Boolean) {
             ?: throw TvException("A TV não respondeu ao comando.")
         return when {
             r.type == "closed" -> throw TvException("A TV encerrou a conexão." + (r.error?.let { " ($it)" } ?: ""))
-            r.type == "error" -> throw TvException(friendly(r.error))
+            r.type == "error" -> throw TvException(friendly(r.error) + " [${uri.removePrefix("ssap://")}]")
             r.returnValue == false -> throw TvException(r.error ?: "A TV recusou o comando.")
             else -> r
         }
