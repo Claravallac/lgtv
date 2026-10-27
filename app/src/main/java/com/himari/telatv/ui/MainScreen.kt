@@ -39,6 +39,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.himari.telatv.Shortcuts
 import com.himari.telatv.TvViewModel
@@ -168,6 +169,36 @@ private fun SetupCard(vm: TvViewModel, ui: UiState, hostText: String, onHost: (S
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("Abrir o Spotify da TV ao apagar a tela", Modifier.weight(1f))
                 Switch(checked = ui.spotifyOnTv, onCheckedChange = vm::setSpotifyOnTv)
+            }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Apagar a tela por SSH (TV com acesso root)", Modifier.weight(1f))
+                Switch(checked = ui.sshEnabled, onCheckedChange = vm::setSshEnabled)
+            }
+            if (ui.sshEnabled) {
+                OutlinedTextField(
+                    value = ui.sshUser,
+                    onValueChange = vm::setSshUser,
+                    label = { Text("Usuário SSH") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = ui.sshPort,
+                    onValueChange = vm::setSshPort,
+                    label = { Text("Porta SSH") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = ui.sshPassword,
+                    onValueChange = vm::setSshPassword,
+                    label = { Text("Senha SSH (vazio se não tiver)") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedButton(onClick = vm::testSsh, enabled = !ui.busy) { Text("Testar SSH") }
             }
             val version = try {
                 ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName

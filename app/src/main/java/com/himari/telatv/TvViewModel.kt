@@ -13,7 +13,9 @@ import com.himari.telatv.data.Ssap
 import com.himari.telatv.data.ToggleFlow
 import com.himari.telatv.data.TvException
 import com.himari.telatv.net.TvClient
+import com.himari.telatv.data.SsapScreen
 import com.himari.telatv.net.TvDiscovery
+import com.himari.telatv.net.sshScreen
 import java.util.concurrent.Executors
 import kotlin.concurrent.thread
 
@@ -25,7 +27,11 @@ data class UiState(
     val screenOff: Boolean? = null,     // último estado conhecido da tela (null = desconhecido)
     val spotifyOnTv: Boolean = true,
     val searching: Boolean = false,     // procurando a TV na rede
-    val found: List<String> = emptyList() // IPs de TVs LG achadas
+    val found: List<String> = emptyList(), // IPs de TVs LG achadas
+    val sshEnabled: Boolean = false,
+    val sshUser: String = "root",
+    val sshPort: String = "22",
+    val sshPassword: String = ""
 )
 
 /**
@@ -41,7 +47,11 @@ class TvViewModel(app: Application) : AndroidViewModel(app) {
         UiState(
             host = prefs.host,
             paired = prefs.clientKey != null,
-            spotifyOnTv = prefs.spotify != SpotifyTarget.NONE
+            spotifyOnTv = prefs.spotify != SpotifyTarget.NONE,
+            sshEnabled = prefs.sshEnabled,
+            sshUser = prefs.sshUser,
+            sshPort = prefs.sshPort.toString(),
+            sshPassword = prefs.sshPassword
         )
     )
         private set
@@ -104,7 +114,14 @@ class TvViewModel(app: Application) : AndroidViewModel(app) {
         update { it.copy(busy = true, message = null) }
         io.execute {
             try {
-                val done = withClient { ToggleFlow.perform(it.session, prefs.spotify, prefs.screenAssumedOff) }
+                val done = withClient {
+                    val ssh = sshScreen(prefs)
+                    try {
+                        ToggleFlow.perform(it.session, prefs.spotify, prefs.screenAssumedOff, ssh ?: SsapScreen(it.session))
+                    } finally {
+                        ssh?.close()
+                    }
+                }
                 prefs.screenAssumedOff = done.usedAlt && done.plan.turnsOff
                 update { it.copy(busy = false, screenOff = done.plan.turnsOff, message = done.warning) }
             } catch (e: Exception) {
@@ -125,6 +142,45 @@ class TvViewModel(app: Application) : AndroidViewModel(app) {
                 if (ui.message != null) update { it.copy(message = null) }
             } catch (e: Exception) {
                 fail(e)
+            }
+        }
+    }
+
+    fun setSshEnabled(on: Boolean) {
+        prefs.sshEnabled = on
+        update { it.copy(sshEnabled = on) }
+    }
+
+    fun setSshUser(v: String) {
+        prefs.sshUser = v
+        update { it.copy(sshUser = v) }
+    }
+
+    fun setSshPort(v: String) {
+        val digits = v.filter { it.isDigit() }.take(5)
+        prefs.sshPort = digits.toIntOrNull() ?: 22
+        update { it.copy(sshPort = digits) }
+    }
+
+    fun setSshPassword(v: String) {
+        prefs.sshPassword = v
+        update { it.copy(sshPassword = v) }
+    }
+
+    /** Conecta por SSH e lê o estado de energia, para conferir usuário, senha e porta. */
+    fun testSsh() {
+        if (ui.busy) return
+        update { it.copy(busy = true, message = "Testando o SSH…") }
+        thread {
+            val ssh = sshScreen(prefs, ignoreSwitch = true)
+            try {
+                if (ssh == null) throw TvException("Informe o IP da TV.")
+                val st = ssh.powerState()
+                update { it.copy(busy = false, message = "SSH funcionando. Estado da TV: ${st ?: "desconhecido"}.") }
+            } catch (e: Exception) {
+                fail(e)
+            } finally {
+                ssh?.close()
             }
         }
     }

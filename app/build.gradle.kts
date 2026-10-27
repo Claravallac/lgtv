@@ -44,5 +44,8 @@ dependencies {
     // WebSocket (ws/wss) para falar com a TV. Única dependência de rede.
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
+    // SSH (apagar a tela por luna-send em TVs com root)
+    implementation("com.github.mwiede:jsch:0.2.18")
+
     testImplementation("junit:junit:4.13.2")
 }

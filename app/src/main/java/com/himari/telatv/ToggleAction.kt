@@ -5,7 +5,9 @@ import com.himari.telatv.data.Prefs
 import com.himari.telatv.data.Ssap
 import com.himari.telatv.data.ToggleFlow
 import com.himari.telatv.data.TvException
+import com.himari.telatv.data.SsapScreen
 import com.himari.telatv.net.TvClient
+import com.himari.telatv.net.sshScreen
 
 /** A ação do atalho/Tile: conecta, alterna a tela e (se configurado) abre o Spotify. Bloqueante. */
 object ToggleAction {
@@ -22,7 +24,12 @@ object ToggleAction {
                 tv.connect()
                 val key = tv.session.register(savedKey, 10_000)
                 if (key != savedKey) prefs.clientKey = key
-                val done = ToggleFlow.perform(tv.session, prefs.spotify, prefs.screenAssumedOff)
+                val ssh = sshScreen(prefs)
+                val done = try {
+                    ToggleFlow.perform(tv.session, prefs.spotify, prefs.screenAssumedOff, ssh ?: SsapScreen(tv.session))
+                } finally {
+                    ssh?.close()
+                }
                 prefs.screenAssumedOff = done.usedAlt && done.plan.turnsOff
                 Outcome(true, done.plan.successMessage + (done.warning?.let { " $it" } ?: ""), done.plan.spotifyOnPhone)
             }
