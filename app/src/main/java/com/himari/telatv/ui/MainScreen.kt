@@ -1,6 +1,7 @@
 package com.himari.telatv.ui
 
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -29,6 +30,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -58,6 +60,10 @@ fun MainScreen(vm: TvViewModel) {
     // Achou exatamente uma TV e o campo está vazio: preenche.
     LaunchedEffect(ui.found) { if (hostText.isBlank() && ui.found.size == 1) hostText = ui.found[0] }
 
+    // Sem TV configurada, já abre nas configurações; com ela, a tela principal só tem os controles.
+    var showSettings by rememberSaveable { mutableStateOf(!ui.ready) }
+    BackHandler(enabled = showSettings && ui.ready) { showSettings = false }
+
     Scaffold { inner ->
         Column(
             Modifier
@@ -66,7 +72,12 @@ fun MainScreen(vm: TvViewModel) {
                 .padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Text("TelaTV", style = MaterialTheme.typography.headlineMedium)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("TelaTV", Modifier.weight(1f), style = MaterialTheme.typography.headlineMedium)
+                TextButton(onClick = { showSettings = !showSettings }) {
+                    Text(if (showSettings) "Fechar" else "⚙ Configurações")
+                }
+            }
 
             ui.message?.let { msg ->
                 Card(
@@ -77,8 +88,18 @@ fun MainScreen(vm: TvViewModel) {
                 }
             }
 
-            if (ui.ready) RemoteCard(vm, ui)
-            SetupCard(vm, ui, hostText) { hostText = it }
+            if (showSettings) {
+                SetupCard(vm, ui, hostText) { hostText = it }
+            } else if (ui.ready) {
+                RemoteCard(vm, ui)
+            } else {
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("Nenhuma TV configurada ainda.", style = MaterialTheme.typography.bodyLarge)
+                        Button(onClick = { showSettings = true }) { Text("Abrir configurações") }
+                    }
+                }
+            }
         }
     }
 }
