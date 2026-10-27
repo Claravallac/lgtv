@@ -12,8 +12,8 @@ android {
         applicationId = "com.himari.telatv"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "0.3"
+        versionCode = 4
+        versionName = "0.3.1"
     }
 
     buildTypes {
@@ -26,6 +26,7 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { compose = true }
+    packaging { resources { excludes += "META-INF/versions/9/OSGI-INF/MANIFEST.MF" } }
 }
 
 dependencies {
@@ -46,6 +47,8 @@ dependencies {
 
     // SSH (apagar a tela por luna-send em TVs com root)
     implementation("com.github.mwiede:jsch:0.2.18")
+    // Chaves ed25519 no Android: o JSch precisa do Bouncy Castle (o do sistema é escondido do app).
+    implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
 
     testImplementation("junit:junit:4.13.2")
 }
