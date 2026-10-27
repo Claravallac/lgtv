@@ -1,0 +1,48 @@
+# TelaTV — Plano e passagem de bastão (para qualquer IA continuar)
+
+Leia este arquivo inteiro antes de mexer no código. Atualize **Progresso** ao terminar cada passo.
+
+## Objetivo
+**Uso real (dito pelo usuário):** ele ouve música (Spotify) na TV à noite e a tela incomoda; hoje precisa de muitos passos para apagar a tela com a música tocando. Quer só o básico, rápido:
+**apagar/acender a tela, volume, mudo, play/pausa, próxima/anterior.**
+App Android nativo (Kotlin + Jetpack Compose), tela principal = controle remoto mínimo com o botão de tela bem grande; mais um atalho (ícone/Tile) que alterna a tela e abre o Spotify.
+Conexão com a TV LG webOS por SSAP (WebSocket). Tema Material You, tudo local, sem conta, UI em pt-BR.
+
+## Decisões
+- Mesma base do projeto Recargas: Gradle 8.9 / AGP 8.7.3 / Kotlin 2.0.21 (plugin compose) / JDK 17 / minSdk 26 / compileSdk 35, Compose BOM 2024.12.01.
+- Única dependência extra: OkHttp 4.12.0 (WebSocket ws/wss). Sem Room/Navigation/Hilt. Config em SharedPreferences, navegação por estado.
+- Ambiente da IA NÃO compila Android. Build pelo GitHub Actions. A lógica pura (`data/Ssap.kt`) é compilada e testada com kotlinc (baixar de github.com/JetBrains/kotlin/releases, v2.0.21) usando stubs do JUnit.
+- Sem SSH/luna-send no celular: o app usa SSAP (porta 3000 ws, ou 3001 wss no webOS 4+, certificado autoassinado -> confiar só no host da TV configurado).
+- Alternar tela: `getPowerState`; se `Screen Off` ou `Active Standby` -> `turnOnScreen`, senão `turnOffScreen`.
+- Pareamento: 1ª vez a TV mostra pedido na tela; guardar o `client-key` e reusar.
+- Spotify no celular: `packageManager.getLaunchIntentForPackage("com.spotify.music")`. Spotify na TV: `ssap://system.launcher/launch` com `{"id":"spotify-beehive"}`.
+- Atalho: ShortcutManager (dinâmico + fixar na tela inicial) e Quick Settings Tile, ambos abrem uma Activity transparente que faz a ação e fecha.
+
+- Volume/mudo: `audio/volumeUp`, `audio/volumeDown` (SSAP) e botão MUTE (toggle). Play/Pausa: `media.controls/play|pause`. Próxima/Anterior: teclas FASTFORWARD/REWIND pelo socket de ponteiro (`getPointerInputSocket`, 2º WebSocket com texto `type:button\nname:X\n\n`).
+- Opção **MusicControl**: "Na TV" (padrão, comandos acima) ou "No celular" (`PhoneMedia`: teclas de mídia do Android para o Spotify do celular, útil se a música toca na TV por Spotify Connect). Volume sempre vai para a TV.
+- Padrão do Spotify ao apagar a tela: **na TV** (o usuário ouve na TV).
+
+## Riscos conhecidos
+- **Próxima/Anterior na TV não é garantido**: depende de o app Spotify da TV tratar FASTFORWARD/REWIND como pular faixa. TESTAR no passo final; se não funcionar, usar "No celular" ou investigar outras teclas.
+- Foram adicionadas permissões ao manifesto de pareamento (CONTROL_AUDIO, CONTROL_INPUT_MEDIA_PLAYBACK, CONTROL_MOUSE_AND_KEYBOARD, CONTROL_INPUT_TEXT): quem já pareou antes precisa PAREAR DE NOVO.
+- Manifesto de pareamento SEM assinatura LG. Se a TV responder `401 insufficient permissions` em power, trocar para o manifesto assinado (campo `signed` + `signatures`, como nas libs lgtv2/pywebostv).
+- Na TV precisa estar ligado o controle pela rede (LG Connect Apps / ligar pelo celular/Wi-Fi).
+- IP da TV deve ser fixo (reserva no roteador).
+- `turnOnScreen` só tira de "Screen Off"; não liga a TV do standby total (isso seria Wake-on-LAN, fora de escopo por enquanto).
+- Dispositivo de teste do usuário: Redmi Note 13 4G, Android 13 (MIUI/HyperOS pode limitar abrir app em segundo plano; a Activity transparente evita isso).
+
+## Passos
+- [x] **1. Esqueleto + protocolo** — build files, workflow, tema, `MainActivity` provisória, `data/Ssap.kt` (monta/lê mensagens, `toggleUri`, `normalizeHost`) + `SsapTest.kt` (6 testes passando no kotlinc).
+- [x] **2. Rede** (feito; `TvSession` testada em kotlinc, `TvClient`/`Prefs` ainda não compilados) — `data/TvSession.kt` (pura: `register` espera o aceite na TV até 60 s, `request` casa resposta por id, `TvException` com mensagens em pt-BR, 401 vira "refaça o pareamento"), `net/TvClient.kt` (OkHttp: tenta wss:3001 e cai para ws:3000, aceita certificado autoassinado só do host da TV, alimenta a `TvSession`; bloqueante, usar fora da thread principal; `close()` ao final), `data/Prefs.kt` (host, clientKey — apagada ao trocar de host —, destino do Spotify), `data/SpotifyTarget.kt`. 16 testes passando (`SsapTest` + `TvSessionTest`).
+- [x] **3. Ação + atalho** (feito; `TogglePlan` testada em kotlinc, o resto não compilado) — `data/TogglePlan.kt` (pura: alterna a tela; **Spotify abre só ao APAGAR** a tela — na TV antes de apagar, no celular depois), `ToggleAction.kt` (conecta, `register` com 10 s, guarda chave nova, executa o plano; exige IP e chave já salvos — o pareamento é no app, passo 4; falha do Spotify na TV vira aviso e não impede alternar a tela), `ToggleActivity.kt` (transparente, `Theme.Translucent`, thread + Toast, abre Spotify do celular por `getLaunchIntentForPackage`, `excludeFromRecents`, `taskAffinity=""`), `ToggleTileService.kt` (Tile; PendingIntent no Android 14+), `Shortcuts.kt` (`publish` dinâmico — já chamado em `MainActivity.onCreate` —, `canPin`, `requestPin`), `ic_tile.xml`, `<queries>` do Spotify e serviço do Tile no manifesto. 20 testes passando.
+- [x] **4. Controles** (feito; lógica pura testada, resto não compilado) — `data/RemoteCommand.kt` (`RemoteCommand`: VOLUME_UP/DOWN, MUTE, PLAY, PAUSE, NEXT, PREVIOUS, com `uri` SSAP ou `button`; `phoneKeyCode`; enum `MusicControl`), `Ssap.buttonMessage`/`URI_*`/`socketPath`, `TvClient.execute(cmd)`/`sendButton` (abre o socket de ponteiro sob demanda), `PhoneMedia.kt`, `Prefs.musicControl`, padrão do Spotify = TV. 26 testes passando.
+- [x] **5. Tela principal (controle remoto)** (feito, não compilado; `data/ToggleFlow.kt` testada, 30 testes) — `data/ToggleFlow.kt` (pura: estado -> Spotify na TV -> tela; usada pelo atalho e pela tela), `ToggleAction.kt` (agora só chama o fluxo), `TvViewModel.kt` (UMA conexão persistente, uma thread `io` serializa tudo, `withClient` reconecta e repete 1x se cair, `pair` com 60 s, `toggleScreen`, `send(cmd)`, `setSpotifyOnTv`; estado em `mutableStateOf` atualizado com `synchronized`), `ui/MainScreen.kt` (botão grande de tela, Vol −/Mudo/Vol +, ⏮ ▶ ⏸ ⏭, card de configuração com IP, Parear, chave "Abrir o Spotify da TV ao apagar a tela", "Fixar atalho"), `MainActivity` usa a `MainScreen`. Opções "No celular" (Spotify/controle de música) existem no código mas NÃO aparecem na UI, pois o usuário toca o Spotify pelo app da própria TV. Sem botão de segurar para repetir volume (cada toque = 1 passo).
+- [x] **6. Revisão** — Baixado `android.jar` (API 33, de github.com/Sable/android-platforms) e compilado com kotlinc, junto com stubs mínimos do OkHttp: `data/*`, `net/TvClient.kt`, `ToggleAction`, `ToggleActivity`, `PhoneMedia`, `Prefs` COMPILAM sem erro. `ToggleTileService` só falha em `startActivityAndCollapse(PendingIntent)` por ser API 34 (existe no compileSdk 35). Manifesto/XML válidos, todos os recursos referenciados existem. Correções da revisão: `TvClient` usa `ConnectionSpec.COMPATIBLE_TLS` (TV com TLS antigo), `socketPath` desescapa `\/`, `getApplication<Application>()`. 31 testes passando.
+  **NÃO verificados (precisam do build real):** Compose (`MainScreen`, `Theme`, `MainActivity`), `TvViewModel` (androidx), `Shortcuts` (androidx.core), e o OkHttp real (os stubs só conferem o uso que eu lembro da API).
+- [ ] **7. Build real e teste** — subir no GitHub (Actions `Build APK`), baixar o APK em Artifacts, corrigir erros.
+  Suspeitos se o Actions falhar: assinatura de `CircularProgressIndicator`/`OutlinedTextField.supportingText` (Material3 1.3.1), `Modifier.semantics`, `viewModel<TvViewModel>()` com `AndroidViewModel`, `ShortcutInfoCompat`/`IconCompat.createWithResource` com mipmap adaptativo, `okhttp3` (`dispatcher.executorService`, `hostnameVerifier` SAM).
+  Roteiro de teste no aparelho e na TV: (1) ligar controle pela rede na TV e reservar IP; (2) Parear e aceitar na TV; (3) botão grande apaga a tela e abre o Spotify da TV; (4) botão acende; (5) Vol −/+ e Mudo; (6) Play/Pausa; (7) **Próxima/Anterior** (se não pularem faixa, testar outras teclas); (8) atalho fixado e Tile; (9) deixar o app em segundo plano e voltar (reconexão); (10) se der `401`, trocar para manifesto assinado.
+
+## Progresso / notas
+- Passos 1 a 5: lógica pura testada com kotlinc (31 testes). `net/TvClient.kt`, `data/Prefs.kt`, `ToggleAction/Activity/Tile`, `Shortcuts` e Compose ainda não compilados (sem Android SDK aqui).
+- (Pareamento no app, já feito no passo 5): `TvClient(host).use { c -> c.connect(); prefs.clientKey = c.session.register(null, 60_000) }` em thread; mostrar "aceite o pedido na TV". `Shortcuts.requestPin(ctx)` para fixar o atalho (checar `canPin`). Uso do pareamento na ação: `TvClient(host).use { c -> c.connect(); val key = c.session.register(prefs.clientKey); prefs.clientKey = key; val st = c.session.request(Ssap.URI_POWER_STATE).state; c.session.request(Ssap.toggleUri(st)) }` dentro de `Dispatchers.IO` ou `thread {}`.
