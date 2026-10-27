@@ -21,6 +21,18 @@ class SsapTest {
         assertTrue(m.contains("\"CONTROL_POWER\""))
     }
 
+    @Test fun registroTemManifestoAssinado() {
+        val m = Ssap.registerMessage("reg_0", null)
+        assertTrue(m.contains("\"signed\":{\"created\":\"20140509\""))
+        assertTrue(m.contains("\"appId\":\"com.lge.test\""))
+        assertTrue(m.contains("\"signatures\":[{\"signatureVersion\":1,\"signature\":\"eyJhbGdvcml0aG0i"))
+        assertTrue(m.contains("\"READ_POWER_STATE\""))
+        assertTrue(m.contains("\"CONTROL_INPUT_MEDIA_PLAYBACK\""))
+        // chaves e colchetes balanceados (sem aspas dentro de strings, então a contagem simples vale)
+        assertEquals(m.count { it == '{' }, m.count { it == '}' })
+        assertEquals(m.count { it == '[' }, m.count { it == ']' })
+    }
+
     @Test fun registroComChave() {
         val m = Ssap.registerMessage("reg_0", "abc\"123")
         assertTrue(m.contains("\"client-key\":\"abc\\\"123\""))
