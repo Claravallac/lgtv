@@ -12,6 +12,10 @@ object Ssap {
     const val URI_POWER_STATE = "ssap://com.webos.service.tvpower/power/getPowerState"
     const val URI_SCREEN_OFF = "ssap://com.webos.service.tvpower/power/turnOffScreen"
     const val URI_SCREEN_ON = "ssap://com.webos.service.tvpower/power/turnOnScreen"
+    /** Serviço alternativo (webOS 4.x e algumas TVs onde o tvpower nega/não existe). Exige standbyMode "active". */
+    const val URI_ALT_SCREEN_OFF = "ssap://com.webos.service.tv.power/turnOffScreen"
+    const val URI_ALT_SCREEN_ON = "ssap://com.webos.service.tv.power/turnOnScreen"
+    const val ALT_SCREEN_PAYLOAD = """{"standbyMode":"active"}"""
     const val URI_LAUNCH = "ssap://system.launcher/launch"
     const val URI_VOLUME_UP = "ssap://audio/volumeUp"
     const val URI_VOLUME_DOWN = "ssap://audio/volumeDown"

@@ -23,6 +23,14 @@ class Prefs(context: Context) {
         get() = SpotifyTarget.fromName(sp.getString("spotify", null))
         set(v) { sp.edit().putString("spotify", v.name).apply() }
 
+    /**
+     * Em TVs onde getPowerState continua dizendo "Active" com a tela apagada (serviço alternativo),
+     * guardamos que fomos nós que apagamos, para o próximo toque ACENDER.
+     */
+    var screenAssumedOff: Boolean
+        get() = sp.getBoolean("screen_assumed_off", false)
+        set(v) { sp.edit().putBoolean("screen_assumed_off", v).apply() }
+
     var musicControl: MusicControl
         get() = MusicControl.fromName(sp.getString("music_control", null))
         set(v) { sp.edit().putString("music_control", v.name).apply() }

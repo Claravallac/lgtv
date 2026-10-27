@@ -22,7 +22,8 @@ object ToggleAction {
                 tv.connect()
                 val key = tv.session.register(savedKey, 10_000)
                 if (key != savedKey) prefs.clientKey = key
-                val done = ToggleFlow.perform(tv.session, prefs.spotify)
+                val done = ToggleFlow.perform(tv.session, prefs.spotify, prefs.screenAssumedOff)
+                prefs.screenAssumedOff = done.usedAlt && done.plan.turnsOff
                 Outcome(true, done.plan.successMessage + (done.warning?.let { " $it" } ?: ""), done.plan.spotifyOnPhone)
             }
         } catch (e: TvException) {

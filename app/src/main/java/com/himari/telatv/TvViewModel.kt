@@ -104,7 +104,8 @@ class TvViewModel(app: Application) : AndroidViewModel(app) {
         update { it.copy(busy = true, message = null) }
         io.execute {
             try {
-                val done = withClient { ToggleFlow.perform(it.session, prefs.spotify) }
+                val done = withClient { ToggleFlow.perform(it.session, prefs.spotify, prefs.screenAssumedOff) }
+                prefs.screenAssumedOff = done.usedAlt && done.plan.turnsOff
                 update { it.copy(busy = false, screenOff = done.plan.turnsOff, message = done.warning) }
             } catch (e: Exception) {
                 fail(e)
