@@ -13,26 +13,37 @@ import com.himari.telatv.net.sshScreen
 object ToggleAction {
     data class Outcome(val ok: Boolean, val message: String, val openSpotifyOnPhone: Boolean = false)
 
+    /** Com root + SSH não precisa parear a TV (SSAP): apaga/acende e abre o Spotify pelo próprio SSH. */
+    private fun runSsh(prefs: Prefs): Outcome {
+        val ssh = sshScreen(prefs) ?: return Outcome(false, "Informe o IP da TV no app TelaTV.")
+        try {
+            val done = ToggleFlow.perform(prefs.spotify, prefs.screenAssumedOff, ssh)
+            prefs.screenAssumedOff = done.usedAlt && done.plan.turnsOff
+            return Outcome(true, done.plan.successMessage + (done.warning?.let { " $it" } ?: ""), done.plan.spotifyOnPhone)
+        } finally {
+            ssh.close()
+        }
+    }
+
+    private fun runSsap(prefs: Prefs, host: String): Outcome {
+        val savedKey = prefs.clientKey
+            ?: return Outcome(false, "Pareie a TV primeiro, abrindo o app TelaTV.")
+        TvClient(host).use { tv ->
+            tv.connect()
+            val key = tv.session.register(savedKey, 10_000)
+            if (key != savedKey) prefs.clientKey = key
+            val done = ToggleFlow.perform(tv.session, prefs.spotify, prefs.screenAssumedOff, SsapScreen(tv.session))
+            prefs.screenAssumedOff = done.usedAlt && done.plan.turnsOff
+            return Outcome(true, done.plan.successMessage + (done.warning?.let { " $it" } ?: ""), done.plan.spotifyOnPhone)
+        }
+    }
+
     fun run(context: Context): Outcome {
         val prefs = Prefs(context)
         val host = Ssap.normalizeHost(prefs.host)
             ?: return Outcome(false, "Informe o IP da TV no app TelaTV.")
-        val savedKey = prefs.clientKey
-            ?: return Outcome(false, "Pareie a TV primeiro, abrindo o app TelaTV.")
         return try {
-            TvClient(host).use { tv ->
-                tv.connect()
-                val key = tv.session.register(savedKey, 10_000)
-                if (key != savedKey) prefs.clientKey = key
-                val ssh = sshScreen(prefs)
-                val done = try {
-                    ToggleFlow.perform(tv.session, prefs.spotify, prefs.screenAssumedOff, ssh ?: SsapScreen(tv.session))
-                } finally {
-                    ssh?.close()
-                }
-                prefs.screenAssumedOff = done.usedAlt && done.plan.turnsOff
-                Outcome(true, done.plan.successMessage + (done.warning?.let { " $it" } ?: ""), done.plan.spotifyOnPhone)
-            }
+            if (prefs.sshEnabled) runSsh(prefs) else runSsap(prefs, host)
         } catch (e: TvException) {
             Outcome(false, e.message ?: "Erro ao falar com a TV.")
         } catch (e: Exception) {

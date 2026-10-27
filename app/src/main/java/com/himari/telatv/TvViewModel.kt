@@ -8,6 +8,7 @@ import androidx.lifecycle.AndroidViewModel
 import com.himari.telatv.data.MusicControl
 import com.himari.telatv.data.Prefs
 import com.himari.telatv.data.RemoteCommand
+import com.himari.telatv.data.ScreenDriver
 import com.himari.telatv.data.SpotifyTarget
 import com.himari.telatv.data.Ssap
 import com.himari.telatv.data.ToggleFlow
@@ -31,8 +32,12 @@ data class UiState(
     val sshEnabled: Boolean = false,
     val sshUser: String = "root",
     val sshPort: String = "22",
-    val sshPassword: String = ""
-)
+    val sshPassword: String = "",
+    val sshKey: String = ""
+) {
+    /** Pode mostrar o controle: pareado (SSAP) ou com SSH ligado e IP salvo (TV com root não precisa parear). */
+    val ready: Boolean get() = paired || (sshEnabled && host.isNotBlank())
+}
 
 /**
  * Mantém UMA conexão com a TV aberta (volume instantâneo) e reconecta sozinho se cair.
@@ -51,7 +56,8 @@ class TvViewModel(app: Application) : AndroidViewModel(app) {
             sshEnabled = prefs.sshEnabled,
             sshUser = prefs.sshUser,
             sshPort = prefs.sshPort.toString(),
-            sshPassword = prefs.sshPassword
+            sshPassword = prefs.sshPassword,
+            sshKey = prefs.sshKey
         )
     )
         private set
@@ -114,13 +120,16 @@ class TvViewModel(app: Application) : AndroidViewModel(app) {
         update { it.copy(busy = true, message = null) }
         io.execute {
             try {
-                val done = withClient {
-                    val ssh = sshScreen(prefs)
+                val done = if (prefs.sshEnabled) {
+                    // TV com root: tudo por SSH, sem parear.
+                    val ssh = sshScreen(prefs) ?: throw TvException("Informe o IP da TV.")
                     try {
-                        ToggleFlow.perform(it.session, prefs.spotify, prefs.screenAssumedOff, ssh ?: SsapScreen(it.session))
+                        ToggleFlow.perform(prefs.spotify, prefs.screenAssumedOff, ssh)
                     } finally {
-                        ssh?.close()
+                        ssh.close()
                     }
+                } else {
+                    withClient { ToggleFlow.perform(it.session, prefs.spotify, prefs.screenAssumedOff, SsapScreen(it.session)) }
                 }
                 prefs.screenAssumedOff = done.usedAlt && done.plan.turnsOff
                 update { it.copy(busy = false, screenOff = done.plan.turnsOff, message = done.warning) }
@@ -167,13 +176,34 @@ class TvViewModel(app: Application) : AndroidViewModel(app) {
         update { it.copy(sshPassword = v) }
     }
 
-    /** Conecta por SSH e lê o estado de energia, para conferir usuário, senha e porta. */
+    fun setSshKey(v: String) {
+        prefs.sshKey = v
+        update { it.copy(sshKey = v) }
+    }
+
+    /** Guarda o IP sem parear (modo SSH). Devolve false se o IP for inválido. */
+    fun saveHost(input: String): Boolean {
+        val host = Ssap.normalizeHost(input)
+        if (host == null) {
+            update { it.copy(message = "IP inválido. Exemplo: 192.168.0.10") }
+            return false
+        }
+        if (host != prefs.host) {
+            io.execute { closeClient() }
+            prefs.host = host                       // trocar de TV apaga a chave de pareamento
+            update { it.copy(host = host, paired = prefs.clientKey != null, screenOff = null) }
+        }
+        return true
+    }
+
+    /** Conecta por SSH e lê o estado de energia, para conferir usuário, chave/senha e porta. */
     fun testSsh() {
         if (ui.busy) return
         update { it.copy(busy = true, message = "Testando o SSH…") }
         thread {
-            val ssh = sshScreen(prefs, ignoreSwitch = true)
+            var ssh: ScreenDriver? = null
             try {
+                ssh = sshScreen(prefs, ignoreSwitch = true)
                 if (ssh == null) throw TvException("Informe o IP da TV.")
                 val st = ssh.powerState()
                 update { it.copy(busy = false, message = "SSH funcionando. Estado da TV: ${st ?: "desconhecido"}.") }

@@ -48,6 +48,11 @@ class Prefs(context: Context) {
         get() = sp.getString("ssh_password", "") ?: ""
         set(v) { sp.edit().putString("ssh_password", v).apply() }
 
+    /** Chave privada SSH (texto colado/importado). Vazia = login por senha. allowBackup=false no manifesto. */
+    var sshKey: String
+        get() = sp.getString("ssh_key", "") ?: ""
+        set(v) { sp.edit().putString("ssh_key", v).apply() }
+
     var musicControl: MusicControl
         get() = MusicControl.fromName(sp.getString("music_control", null))
         set(v) { sp.edit().putString("music_control", v.name).apply() }

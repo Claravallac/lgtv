@@ -11,6 +11,9 @@ interface ScreenDriver {
     /** Apaga ([off] = true) ou acende a tela. Devolve true se o estado de energia pode não refletir a tela. */
     fun setScreen(off: Boolean): Boolean
 
+    /** Abre um app na TV (ex.: Spotify). Lança [TvException] se a TV recusar. */
+    fun launchApp(appId: String)
+
     /** Libera conexões abertas pelo driver. */
     fun close() {}
 }
@@ -24,6 +27,10 @@ fun isConnectionError(e: TvException): Boolean = e.message?.contains("conexão")
  * (standbyMode "active", que mantém o áudio tocando).
  */
 class SsapScreen(private val session: TvSession) : ScreenDriver {
+    override fun launchApp(appId: String) {
+        session.request(Ssap.URI_LAUNCH, Ssap.launchPayload(appId))
+    }
+
     override fun powerState(): String? = try {
         session.request(Ssap.URI_POWER_STATE).state
     } catch (e: TvException) {
@@ -62,6 +69,16 @@ class SshScreen(private val run: (String) -> String, private val onClose: () -> 
     companion object {
         fun lunaCommand(method: String, payload: String = "{}") =
             "luna-send -n 1 luna://com.webos.service.tvpower/power/$method '$payload'"
+
+        fun launchCommand(appId: String) =
+            "luna-send -n 1 luna://com.webos.applicationManager/launch '${Ssap.launchPayload(appId)}'"
+    }
+
+    override fun launchApp(appId: String) {
+        val out = run(launchCommand(appId))
+        if (Ssap.parse(out).returnValue != true) {
+            throw TvException("A TV não abriu o app por SSH: ${out.trim().take(160)}")
+        }
     }
 
     override fun powerState(): String? {

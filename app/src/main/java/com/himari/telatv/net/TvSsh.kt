@@ -2,6 +2,7 @@ package com.himari.telatv.net
 
 import com.himari.telatv.data.Prefs
 import com.himari.telatv.data.ScreenDriver
+import com.himari.telatv.data.SshKey
 import com.himari.telatv.data.Ssap
 import com.himari.telatv.data.SshScreen
 import com.himari.telatv.data.TvException
@@ -17,7 +18,9 @@ class TvSsh(
     private val host: String,
     private val user: String,
     private val port: Int,
-    private val password: String
+    private val password: String,
+    /** Chave privada já normalizada (PEM) ou null para entrar só por senha. */
+    private val privateKey: String? = null
 ) : Closeable {
     private var session: Session? = null
 
@@ -28,12 +31,16 @@ class TvSsh(
 
     private fun open(timeoutMs: Int): Session {
         session?.let { if (it.isConnected) return it }
-        val s = JSch().getSession(user, host, port)
+        val jsch = JSch()
+        if (!privateKey.isNullOrEmpty()) jsch.addIdentity("telatv", privateKey.toByteArray(Charsets.UTF_8), null, null)
+        val s = jsch.getSession(user, host, port)
         if (password.isNotEmpty()) s.setPassword(password)
         s.setConfig("StrictHostKeyChecking", "no")
-        s.setConfig("PreferredAuthentications", "none,password,keyboard-interactive")
-        // TVs com SSH antigo (dropbear): aceitar algoritmos legados.
+        // Chave primeiro (TV com root + Homebrew Channel); senha/vazio como alternativa.
+        s.setConfig("PreferredAuthentications", "publickey,none,password,keyboard-interactive")
+        // TVs com SSH antigo (dropbear): aceitar algoritmos legados (inclusive chave RSA assinada com ssh-rsa).
         allow(s, "server_host_key", "ssh-rsa,ssh-dss")
+        allow(s, "PubkeyAcceptedAlgorithms", "ssh-rsa")
         allow(s, "kex", "diffie-hellman-group14-sha1,diffie-hellman-group1-sha1")
         s.connect(timeoutMs)
         session = s
@@ -59,10 +66,17 @@ class TvSsh(
         } catch (e: JSchException) {
             close()
             val m = e.message.orEmpty()
+            val low = m.lowercase()
             throw TvException(
                 when {
-                    "Auth fail" in m || "Auth cancel" in m -> "O SSH da TV recusou o login. Confira usuário e senha."
-                    "refused" in m -> "A TV recusou a conexão SSH (porta $port). O SSH está ativo na TV?"
+                    "invalid privatekey" in low || "passphrase" in low || "unsupported" in low && "key" in low ->
+                        "A TV não aceitou o formato da chave. Use uma chave RSA sem senha " +
+                            "(ssh-keygen -t rsa -b 2048 -m PEM) e cole a privada inteira."
+                    "Auth fail" in m || "Auth cancel" in m ->
+                        "O SSH da TV recusou o login. Confira o usuário (root) e a chave ou senha."
+                    "refused" in m ->
+                        "A TV recusou a conexão SSH (porta $port). O SSH do Homebrew Channel usa a porta 22; " +
+                            "confira se ele está ligado na TV."
                     "timeout" in m.lowercase() || "timed out" in m.lowercase() ->
                         "A TV não respondeu ao SSH (porta $port). Confira o IP e se o SSH está ativo."
                     else -> "Erro de SSH: $m"
@@ -81,6 +95,7 @@ class TvSsh(
 fun sshScreen(prefs: Prefs, ignoreSwitch: Boolean = false): ScreenDriver? {
     if (!prefs.sshEnabled && !ignoreSwitch) return null
     val host = Ssap.normalizeHost(prefs.host) ?: return null
-    val ssh = TvSsh(host, prefs.sshUser.ifBlank { "root" }, prefs.sshPort, prefs.sshPassword)
+    val key = SshKey.normalize(prefs.sshKey)   // lança TvException se a chave colada for inválida
+    val ssh = TvSsh(host, prefs.sshUser.ifBlank { "root" }, prefs.sshPort, prefs.sshPassword, key)
     return SshScreen(run = { ssh.exec(it) }, onClose = { ssh.close() })
 }

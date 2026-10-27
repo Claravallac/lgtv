@@ -1,6 +1,8 @@
 package com.himari.telatv.ui
 
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -75,7 +77,7 @@ fun MainScreen(vm: TvViewModel) {
                 }
             }
 
-            if (ui.paired) RemoteCard(vm, ui)
+            if (ui.ready) RemoteCard(vm, ui)
             SetupCard(vm, ui, hostText) { hostText = it }
         }
     }
@@ -130,6 +132,20 @@ private fun RowScope.RemoteButton(text: String, cmd: RemoteCommand, vm: TvViewMo
 @Composable
 private fun SetupCard(vm: TvViewModel, ui: UiState, hostText: String, onHost: (String) -> Unit) {
     val ctx = LocalContext.current
+    val pickKey = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            val text = try {
+                ctx.contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }
+            } catch (e: Exception) {
+                null
+            }
+            if (text == null || text.length > 16_000) {
+                Toast.makeText(ctx, "Não consegui ler esse arquivo como chave.", Toast.LENGTH_LONG).show()
+            } else {
+                vm.setSshKey(text)
+            }
+        }
+    }
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(
@@ -175,6 +191,14 @@ private fun SetupCard(vm: TvViewModel, ui: UiState, hostText: String, onHost: (S
                 Switch(checked = ui.sshEnabled, onCheckedChange = vm::setSshEnabled)
             }
             if (ui.sshEnabled) {
+                Text(
+                    "TV com root: não precisa parear. O SSH do Homebrew Channel usa a porta 22 e o usuário root. " +
+                        "Entre com a chave privada abaixo ou, sem chave, com a senha (vazia ou alpine em TV recém-rootada).",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                if (!ui.paired) {
+                    Button(onClick = { vm.saveHost(hostText) }, enabled = !ui.busy) { Text("Salvar IP (sem parear)") }
+                }
                 OutlinedTextField(
                     value = ui.sshUser,
                     onValueChange = vm::setSshUser,
@@ -198,7 +222,28 @@ private fun SetupCard(vm: TvViewModel, ui: UiState, hostText: String, onHost: (S
                     visualTransformation = PasswordVisualTransformation(),
                     modifier = Modifier.fillMaxWidth()
                 )
-                OutlinedButton(onClick = vm::testSsh, enabled = !ui.busy) { Text("Testar SSH") }
+                OutlinedTextField(
+                    value = ui.sshKey,
+                    onValueChange = vm::setSshKey,
+                    label = { Text("Chave privada SSH (opcional)") },
+                    supportingText = {
+                        Text(if (ui.sshKey.isBlank()) "Cole o arquivo inteiro (-----BEGIN ... END-----), sem senha." else "Chave salva (${ui.sshKey.trim().length} caracteres).")
+                    },
+                    minLines = 2,
+                    maxLines = 4,
+                    visualTransformation = PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedButton(onClick = { pickKey.launch(arrayOf("*/*")) }, enabled = !ui.busy) { Text("Importar arquivo") }
+                    if (ui.sshKey.isNotBlank()) {
+                        OutlinedButton(onClick = { vm.setSshKey("") }, enabled = !ui.busy) { Text("Remover chave") }
+                    }
+                }
+                OutlinedButton(
+                    onClick = { if (vm.saveHost(hostText)) vm.testSsh() },
+                    enabled = !ui.busy
+                ) { Text("Testar SSH") }
             }
             val version = try {
                 ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName

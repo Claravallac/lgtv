@@ -61,4 +61,17 @@ class SshScreenTest {
         val msg = try { s.setScreen(false); "" } catch (e: TvException) { e.message!! }
         assertTrue(msg.contains("recusou")); assertTrue(msg.contains("not found"))
     }
+
+    @Test fun comandoDeAbrirApp() {
+        assertEquals(
+            "luna-send -n 1 luna://com.webos.applicationManager/launch '{\"id\":\"spotify-beehive\"}'",
+            SshScreen.launchCommand("spotify-beehive")
+        )
+    }
+
+    @Test fun abrirAppRecusadoViraErro() {
+        val s = SshScreen({ """{ "returnValue": false, "errorText": "Denied" }""" })
+        val msg = try { s.launchApp("spotify-beehive"); "" } catch (e: TvException) { e.message!! }
+        assertTrue(msg.contains("não abriu")); assertTrue(msg.contains("Denied"))
+    }
 }

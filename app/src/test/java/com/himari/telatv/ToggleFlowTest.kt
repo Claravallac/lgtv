@@ -123,4 +123,19 @@ class ToggleFlowTest {
         assertTrue(d.plan.turnsOff)
         assertEquals("com.webos.service.tvpower/power/turnOffScreen", log.last())
     }
+
+    /** Fluxo só por SSH (TV com root): sem sessão SSAP, o Spotify também abre por luna-send. */
+    @Test fun apagaESpotifyPorSshSemSessao() {
+        val log = mutableListOf<String>()
+        val ssh = com.himari.telatv.data.SshScreen({ cmd ->
+            log += cmd
+            if (cmd.contains("getPowerState")) """{ "returnValue": true, "state": "Active" }"""
+            else """{ "returnValue": true }"""
+        })
+        val d = ToggleFlow.perform(SpotifyTarget.TV, false, ssh)
+        assertTrue(d.plan.turnsOff); assertNull(d.warning)
+        assertTrue(log[0].contains("getPowerState"))
+        assertTrue(log[1].contains("applicationManager/launch") && log[1].contains("spotify-beehive"))
+        assertTrue(log[2].contains("turnOffScreen"))
+    }
 }
