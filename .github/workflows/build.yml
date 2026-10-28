@@ -18,13 +18,14 @@ jobs:
       - name: Conferir assinatura do APK (tem que ser a da chave fixa app/debug.keystore)
         run: |
           APK=$(ls app/build/outputs/apk/debug/*.apk | head -1)
-          norm() { grep -oE '([0-9A-F]{2}:){31}[0-9A-F]{2}' | head -1; }
-          EXPECTED=$(keytool -list -keystore app/debug.keystore -storepass android | grep 'SHA-256' | norm)
-          ACTUAL=$(keytool -printcert -jarfile "$APK" | grep 'SHA256:' | norm)
+          # O APK só tem assinatura v2/v3 (minSdk 26), que o keytool não lê: usa o apksigner do SDK.
+          APKSIGNER=$(ls "${ANDROID_HOME:-/usr/local/lib/android/sdk}"/build-tools/*/apksigner | sort -V | tail -1)
+          EXPECTED=$(keytool -list -keystore app/debug.keystore -storepass android | grep 'SHA-256' | grep -oE '([0-9A-F]{2}:){31}[0-9A-F]{2}' | head -1 | tr -d ':' | tr 'A-F' 'a-f')
+          ACTUAL=$("$APKSIGNER" verify --print-certs "$APK" | grep 'certificate SHA-256 digest' | head -1 | awk '{print $NF}' | tr 'A-F' 'a-f')
           echo "Chave fixa : $EXPECTED"
           echo "APK        : $ACTUAL"
           if [ -z "$EXPECTED" ] || [ "$EXPECTED" != "$ACTUAL" ]; then
-            echo "::error::Assinatura diferente. Chave fixa=[$EXPECTED] APK=[$ACTUAL] arquivo=[$APK]"
+            echo "::error::Assinatura diferente. Chave fixa=[$EXPECTED] APK=[$ACTUAL] apksigner=[$APKSIGNER]"
             exit 1
           fi
           echo "::notice::Assinatura OK: $ACTUAL"
