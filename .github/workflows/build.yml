@@ -24,7 +24,7 @@ jobs:
           echo "Chave fixa : $EXPECTED"
           echo "APK        : $ACTUAL"
           if [ -z "$EXPECTED" ] || [ "$EXPECTED" != "$ACTUAL" ]; then
-            echo "::error::A assinatura do APK não é a da chave fixa; o Android não vai atualizar por cima."
+            echo "::error::Assinatura diferente. Chave fixa=[$EXPECTED] APK=[$ACTUAL] arquivo=[$APK]"
             exit 1
           fi
           echo "::notice::Assinatura OK: $ACTUAL"
