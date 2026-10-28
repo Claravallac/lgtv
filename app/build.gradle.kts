@@ -12,8 +12,19 @@ android {
         applicationId = "com.himari.telatv"
         minSdk = 26
         targetSdk = 35
-        versionCode = 7
-        versionName = "0.5.0"
+        versionCode = 8
+        versionName = "0.5.1"
+    }
+
+    // Chave de debug FIXA (versionada no repositório). Sem isso, cada build do GitHub Actions gera uma chave
+    // nova e o Android recusa atualizar o app por cima: seria preciso desinstalar a cada versão.
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
     }
 
     buildTypes {
