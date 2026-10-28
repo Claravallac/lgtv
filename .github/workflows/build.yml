@@ -15,11 +15,19 @@ jobs:
         with:
           gradle-version: 8.9
       - run: gradle assembleDebug testDebugUnitTest --stacktrace
-      - name: Mostrar assinatura do APK (deve ser igual em todos os builds)
+      - name: Conferir assinatura do APK (tem que ser a da chave fixa app/debug.keystore)
         run: |
           APK=$(ls app/build/outputs/apk/debug/*.apk | head -1)
-          FP=$(keytool -printcert -jarfile "$APK" | grep 'SHA256:' | head -1 | xargs)
-          echo "::notice title=Assinatura do APK::$FP"
+          norm() { grep -oE '([0-9A-F]{2}:){31}[0-9A-F]{2}' | head -1; }
+          EXPECTED=$(keytool -list -keystore app/debug.keystore -storepass android | grep 'SHA-256' | norm)
+          ACTUAL=$(keytool -printcert -jarfile "$APK" | grep 'SHA256:' | norm)
+          echo "Chave fixa : $EXPECTED"
+          echo "APK        : $ACTUAL"
+          if [ -z "$EXPECTED" ] || [ "$EXPECTED" != "$ACTUAL" ]; then
+            echo "::error::A assinatura do APK não é a da chave fixa; o Android não vai atualizar por cima."
+            exit 1
+          fi
+          echo "::notice::Assinatura OK: $ACTUAL"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
