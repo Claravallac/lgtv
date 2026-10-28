@@ -4,8 +4,11 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
@@ -23,6 +26,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -35,20 +39,22 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import com.himari.telatv.R
 import com.himari.telatv.Shortcuts
 import com.himari.telatv.TvViewModel
 import com.himari.telatv.UiState
 import com.himari.telatv.data.RemoteCommand
+import kotlinx.coroutines.delay
 
 @Composable
 fun MainScreen(vm: TvViewModel) {
@@ -75,7 +81,11 @@ fun MainScreen(vm: TvViewModel) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("TelaTV", Modifier.weight(1f), style = MaterialTheme.typography.headlineMedium)
                 TextButton(onClick = { showSettings = !showSettings }) {
-                    Text(if (showSettings) "Fechar" else "⚙ Configurações")
+                    if (!showSettings) {
+                        Icon(painterResource(R.drawable.ic_settings), contentDescription = null, modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    Text(if (showSettings) "Fechar" else "Configurações")
                 }
             }
 
@@ -120,33 +130,75 @@ private fun RemoteCard(vm: TvViewModel, ui: UiState) {
         if (ui.busy) {
             CircularProgressIndicator(Modifier.size(28.dp), color = LocalContentColor.current, strokeWidth = 3.dp)
         } else {
+            val icon = if (ui.screenOff == true) R.drawable.ic_tv else R.drawable.ic_tv_off
+            Icon(painterResource(icon), contentDescription = null, modifier = Modifier.size(32.dp))
+            Spacer(Modifier.width(12.dp))
             Text(label, style = MaterialTheme.typography.titleLarge)
         }
     }
 
+    // Direcionais: Voltar | ↑ | Início, ← | Confirmar | →, ↓ (segurar repete).
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            RemoteButton(RemoteCommand.BACK, R.drawable.ic_arrow_back, vm)
+            RemoteButton(RemoteCommand.UP, R.drawable.ic_keyboard_arrow_up, vm)
+            RemoteButton(RemoteCommand.HOME, R.drawable.ic_home, vm)
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            RemoteButton(RemoteCommand.LEFT, R.drawable.ic_keyboard_arrow_left, vm)
+            RemoteButton(RemoteCommand.OK, R.drawable.ic_check, vm, primary = true)
+            RemoteButton(RemoteCommand.RIGHT, R.drawable.ic_keyboard_arrow_right, vm)
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Spacer(Modifier.weight(1f))
+            RemoteButton(RemoteCommand.DOWN, R.drawable.ic_keyboard_arrow_down, vm)
+            Spacer(Modifier.weight(1f))
+        }
+    }
+
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        RemoteButton("Vol −", RemoteCommand.VOLUME_DOWN, vm)
-        RemoteButton("Mudo", RemoteCommand.MUTE, vm)
-        RemoteButton("Vol +", RemoteCommand.VOLUME_UP, vm)
+        RemoteButton(RemoteCommand.VOLUME_DOWN, R.drawable.ic_volume_down, vm)
+        RemoteButton(RemoteCommand.MUTE, R.drawable.ic_volume_off, vm)
+        RemoteButton(RemoteCommand.VOLUME_UP, R.drawable.ic_volume_up, vm)
     }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        RemoteButton("⏮", RemoteCommand.PREVIOUS, vm)
-        RemoteButton("▶", RemoteCommand.PLAY, vm)
-        RemoteButton("⏸", RemoteCommand.PAUSE, vm)
-        RemoteButton("⏭", RemoteCommand.NEXT, vm)
+        RemoteButton(RemoteCommand.PREVIOUS, R.drawable.ic_skip_previous, vm)
+        RemoteButton(RemoteCommand.PLAY, R.drawable.ic_play_arrow, vm)
+        RemoteButton(RemoteCommand.PAUSE, R.drawable.ic_pause, vm)
+        RemoteButton(RemoteCommand.NEXT, R.drawable.ic_skip_next, vm)
     }
 }
 
+/**
+ * Botão do controle com ícone Material. Comandos [RemoteCommand.repeatable] disparam ao tocar e
+ * repetem enquanto o dedo segue pressionado; os demais disparam uma vez por toque.
+ */
 @Composable
-private fun RowScope.RemoteButton(text: String, cmd: RemoteCommand, vm: TvViewModel) {
-    FilledTonalButton(
-        onClick = { vm.send(cmd) },
-        modifier = Modifier
-            .weight(1f)
-            .height(64.dp)
-            .semantics { contentDescription = cmd.label }
-    ) {
-        Text(text, style = MaterialTheme.typography.titleMedium)
+private fun RowScope.RemoteButton(cmd: RemoteCommand, iconRes: Int, vm: TvViewModel, primary: Boolean = false) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    if (cmd.repeatable) {
+        LaunchedEffect(pressed) {
+            if (pressed) {
+                vm.send(cmd)
+                delay(450)
+                while (true) {
+                    vm.send(cmd)
+                    delay(130)
+                }
+            }
+        }
+    }
+    val onClick: () -> Unit = if (cmd.repeatable) ({}) else ({ vm.send(cmd) })
+    val modifier = Modifier.weight(1f).height(64.dp)
+    val padding = PaddingValues(0.dp)
+    val icon: @Composable () -> Unit = {
+        Icon(painterResource(iconRes), contentDescription = cmd.label, modifier = Modifier.size(28.dp))
+    }
+    if (primary) {
+        Button(onClick = onClick, modifier = modifier, contentPadding = padding, interactionSource = interaction) { icon() }
+    } else {
+        FilledTonalButton(onClick = onClick, modifier = modifier, contentPadding = padding, interactionSource = interaction) { icon() }
     }
 }
 
@@ -207,6 +259,15 @@ private fun SetupCard(vm: TvViewModel, ui: UiState, hostText: String, onHost: (S
                 Text("Abrir o Spotify da TV ao apagar a tela", Modifier.weight(1f))
                 Switch(checked = ui.spotifyOnTv, onCheckedChange = vm::setSpotifyOnTv)
             }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Controlar a música pelo celular (play, pausa, próxima, anterior)", Modifier.weight(1f))
+                Switch(checked = ui.musicOnPhone, onCheckedChange = vm::setMusicOnPhone)
+            }
+            Text(
+                "Por padrão, próxima/anterior usam as teclas CH+/CH− da TV. Se não pularem a faixa, ligue esta opção: " +
+                    "ela usa as teclas de mídia do celular e funciona quando o Spotify do celular está controlando a música da TV (Spotify Connect).",
+                style = MaterialTheme.typography.bodySmall
+            )
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("Apagar a tela por SSH (TV com acesso root)", Modifier.weight(1f))
                 Switch(checked = ui.sshEnabled, onCheckedChange = vm::setSshEnabled)

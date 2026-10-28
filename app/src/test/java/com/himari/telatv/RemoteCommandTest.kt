@@ -19,6 +19,45 @@ class RemoteCommandTest {
         assertEquals("MUTE", RemoteCommand.MUTE.button)
     }
 
+    @Test fun proximaEAnteriorPulamFaixaEmVezDeBuscar() {
+        // FASTFORWARD/REWIND só avançam/voltam dentro da música.
+        for (c in listOf(RemoteCommand.NEXT, RemoteCommand.PREVIOUS)) {
+            assertTrue(c.button != "FASTFORWARD" && c.button != "REWIND")
+        }
+        assertEquals("CHANNELUP", RemoteCommand.NEXT.button)
+        assertEquals("CHANNELDOWN", RemoteCommand.PREVIOUS.button)
+    }
+
+    @Test fun direcionaisEConfirmarSaoBotoesDoControle() {
+        assertEquals("UP", RemoteCommand.UP.button)
+        assertEquals("DOWN", RemoteCommand.DOWN.button)
+        assertEquals("LEFT", RemoteCommand.LEFT.button)
+        assertEquals("RIGHT", RemoteCommand.RIGHT.button)
+        assertEquals("ENTER", RemoteCommand.OK.button)
+        assertEquals("BACK", RemoteCommand.BACK.button)
+        assertEquals("HOME", RemoteCommand.HOME.button)
+        for (c in listOf(RemoteCommand.UP, RemoteCommand.DOWN, RemoteCommand.LEFT, RemoteCommand.RIGHT,
+            RemoteCommand.OK, RemoteCommand.BACK, RemoteCommand.HOME)) {
+            assertNull(c.phoneKeyCode)
+        }
+    }
+
+    @Test fun segurarRepeteSoDirecionaisEVolume() {
+        val repete = RemoteCommand.entries.filter { it.repeatable }.toSet()
+        assertEquals(
+            setOf(RemoteCommand.UP, RemoteCommand.DOWN, RemoteCommand.LEFT, RemoteCommand.RIGHT,
+                RemoteCommand.VOLUME_UP, RemoteCommand.VOLUME_DOWN),
+            repete
+        )
+    }
+
+    @Test fun nomesDeBotaoPassamPeloFiltroDaMensagem() {
+        for (c in RemoteCommand.entries) {
+            val b = c.button ?: continue
+            assertEquals("type:button\nname:$b\n\n", Ssap.buttonMessage(b))
+        }
+    }
+
     @Test fun teclasDeMidiaDoCelular() {
         assertEquals(87, RemoteCommand.NEXT.phoneKeyCode)
         assertEquals(88, RemoteCommand.PREVIOUS.phoneKeyCode)

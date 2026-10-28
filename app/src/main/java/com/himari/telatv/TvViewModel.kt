@@ -27,6 +27,7 @@ data class UiState(
     val message: String? = null,        // erro, aviso ou instrução
     val screenOff: Boolean? = null,     // último estado conhecido da tela (null = desconhecido)
     val spotifyOnTv: Boolean = true,
+    val musicOnPhone: Boolean = false,  // play/pausa/próxima/anterior pelo celular em vez da TV
     val searching: Boolean = false,     // procurando a TV na rede
     val found: List<String> = emptyList(), // IPs de TVs LG achadas
     val sshEnabled: Boolean = false,
@@ -53,6 +54,7 @@ class TvViewModel(app: Application) : AndroidViewModel(app) {
             host = prefs.host,
             paired = prefs.clientKey != null,
             spotifyOnTv = prefs.spotify != SpotifyTarget.NONE,
+            musicOnPhone = prefs.musicControl == MusicControl.PHONE,
             sshEnabled = prefs.sshEnabled,
             sshUser = prefs.sshUser,
             sshPort = prefs.sshPort.toString(),
@@ -218,6 +220,11 @@ class TvViewModel(app: Application) : AndroidViewModel(app) {
     fun setSpotifyOnTv(on: Boolean) {
         prefs.spotify = if (on) SpotifyTarget.TV else SpotifyTarget.NONE
         update { it.copy(spotifyOnTv = on) }
+    }
+
+    fun setMusicOnPhone(on: Boolean) {
+        prefs.musicControl = if (on) MusicControl.PHONE else MusicControl.TV
+        update { it.copy(musicOnPhone = on) }
     }
 
     /** Usa a conexão aberta; se ela caiu, reconecta uma vez e repete o comando. */
