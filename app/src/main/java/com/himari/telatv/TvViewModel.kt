@@ -5,14 +5,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
-import com.himari.telatv.data.MusicControl
 import com.himari.telatv.data.Prefs
 import com.himari.telatv.data.RemoteCommand
 import com.himari.telatv.data.ScreenDriver
+import com.himari.telatv.data.SpotifyApi
 import com.himari.telatv.data.SpotifyTarget
 import com.himari.telatv.data.Ssap
 import com.himari.telatv.data.ToggleFlow
 import com.himari.telatv.data.TvException
+import com.himari.telatv.net.SpotifyClient
 import com.himari.telatv.net.TvClient
 import com.himari.telatv.data.SsapScreen
 import com.himari.telatv.net.TvDiscovery
@@ -27,7 +28,8 @@ data class UiState(
     val message: String? = null,        // erro, aviso ou instrução
     val screenOff: Boolean? = null,     // último estado conhecido da tela (null = desconhecido)
     val spotifyOnTv: Boolean = true,
-    val musicOnPhone: Boolean = false,  // play/pausa/próxima/anterior pelo celular em vez da TV
+    val spotifyClientId: String = "",   // Client ID do app criado em developer.spotify.com
+    val spotifyConnected: Boolean = false, // login feito: próxima/anterior pulam faixa pela API do Spotify
     val searching: Boolean = false,     // procurando a TV na rede
     val found: List<String> = emptyList(), // IPs de TVs LG achadas
     val sshEnabled: Boolean = false,
@@ -48,13 +50,15 @@ class TvViewModel(app: Application) : AndroidViewModel(app) {
     private val prefs = Prefs(app)
     private val io = Executors.newSingleThreadExecutor()
     private var client: TvClient? = null   // só mexer dentro de [io]
+    private val spotify = SpotifyClient(prefs)
 
     var ui by mutableStateOf(
         UiState(
             host = prefs.host,
             paired = prefs.clientKey != null,
             spotifyOnTv = prefs.spotify != SpotifyTarget.NONE,
-            musicOnPhone = prefs.musicControl == MusicControl.PHONE,
+            spotifyClientId = prefs.spotifyClientId,
+            spotifyConnected = prefs.spotifyRefreshToken != null,
             sshEnabled = prefs.sshEnabled,
             sshUser = prefs.sshUser,
             sshPort = prefs.sshPort.toString(),
@@ -144,11 +148,33 @@ class TvViewModel(app: Application) : AndroidViewModel(app) {
     fun send(cmd: RemoteCommand) {
         io.execute {
             try {
-                val key = cmd.phoneKeyCode
-                if (key != null && prefs.musicControl == MusicControl.PHONE) {
-                    PhoneMedia.send(getApplication<Application>(), key)
+                if (cmd.skipsTrack && prefs.spotifyRefreshToken != null) {
+                    spotify.skip(cmd)          // pula a faixa do player ativo da conta (o da TV)
                 } else {
                     withClient { it.execute(cmd) }
+                }
+                if (ui.message != null) update { it.copy(message = null) }
+            } catch (e: Exception) {
+                fail(e)
+            }
+        }
+    }
+
+    /**
+     * Abre um app na TV (YouTube, Spotify). Pareado: por SSAP; TV com root sem pareamento: por SSH.
+     */
+    fun launchApp(appId: String) {
+        io.execute {
+            try {
+                if (prefs.clientKey == null && prefs.sshEnabled) {
+                    val ssh = sshScreen(prefs) ?: throw TvException("Informe o IP da TV.")
+                    try {
+                        ssh.launchApp(appId)
+                    } finally {
+                        ssh.close()
+                    }
+                } else {
+                    withClient { SsapScreen(it.session).launchApp(appId) }
                 }
                 if (ui.message != null) update { it.copy(message = null) }
             } catch (e: Exception) {
@@ -222,9 +248,55 @@ class TvViewModel(app: Application) : AndroidViewModel(app) {
         update { it.copy(spotifyOnTv = on) }
     }
 
-    fun setMusicOnPhone(on: Boolean) {
-        prefs.musicControl = if (on) MusicControl.PHONE else MusicControl.TV
-        update { it.copy(musicOnPhone = on) }
+    fun setSpotifyClientId(v: String) {
+        val id = v.trim()
+        if (id != prefs.spotifyClientId) {
+            prefs.spotifyClientId = id
+            prefs.clearSpotifyLogin()          // o login só vale para o Client ID que o criou
+        }
+        update { it.copy(spotifyClientId = id, spotifyConnected = prefs.spotifyRefreshToken != null) }
+    }
+
+    /** Começa o login no Spotify: devolve o endereço para abrir no navegador (ou null + aviso). */
+    fun spotifyLoginUrl(): String? {
+        val id = prefs.spotifyClientId
+        if (!SpotifyApi.isValidClientId(id)) {
+            update { it.copy(message = "Cole o Client ID do app do Spotify (letras e números, 32 caracteres).") }
+            return null
+        }
+        val verifier = SpotifyApi.newVerifier()
+        val state = SpotifyApi.newState()
+        prefs.spotifyVerifier = verifier
+        prefs.spotifyState = state
+        return SpotifyApi.authorizeUrl(id, SpotifyApi.challenge(verifier), state)
+    }
+
+    /** Recebe o redirecionamento do login (telatv://spotify-callback?code=...) e troca pelo token. */
+    fun finishSpotifyLogin(uri: String) {
+        val cb = SpotifyApi.parseCallback(uri)
+        if (cb.error != null) {
+            update { it.copy(message = "Login do Spotify cancelado (${cb.error}).") }
+            return
+        }
+        val code = cb.code
+        if (code == null || cb.state == null || cb.state != prefs.spotifyState) {
+            update { it.copy(message = "Resposta do Spotify inválida. Toque em Conectar de novo.") }
+            return
+        }
+        update { it.copy(message = "Conectando ao Spotify…") }
+        io.execute {
+            try {
+                spotify.exchangeCode(code)
+                update { it.copy(spotifyConnected = true, message = "Spotify conectado. Próxima/anterior agora pulam a faixa na TV.") }
+            } catch (e: Exception) {
+                fail(e)
+            }
+        }
+    }
+
+    fun disconnectSpotify() {
+        prefs.clearSpotifyLogin()
+        update { it.copy(spotifyConnected = false, message = null) }
     }
 
     /** Usa a conexão aberta; se ela caiu, reconecta uma vez e repete o comando. */
@@ -259,6 +331,7 @@ class TvViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     override fun onCleared() {
+        spotify.close()
         io.execute { closeClient() }
         io.shutdown()
     }

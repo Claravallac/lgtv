@@ -53,7 +53,37 @@ class Prefs(context: Context) {
         get() = sp.getString("ssh_key", "") ?: ""
         set(v) { sp.edit().putString("ssh_key", v).apply() }
 
-    var musicControl: MusicControl
-        get() = MusicControl.fromName(sp.getString("music_control", null))
-        set(v) { sp.edit().putString("music_control", v.name).apply() }
+    // --- Spotify Web API (login PKCE, sem segredo): pular faixa no player da TV por Spotify Connect ---
+
+    var spotifyClientId: String
+        get() = sp.getString("spotify_client_id", "") ?: ""
+        set(v) { sp.edit().putString("spotify_client_id", v).apply() }
+
+    var spotifyRefreshToken: String?
+        get() = sp.getString("spotify_refresh", null)
+        set(v) { sp.edit().apply { if (v == null) remove("spotify_refresh") else putString("spotify_refresh", v) }.apply() }
+
+    var spotifyAccessToken: String?
+        get() = sp.getString("spotify_access", null)
+        set(v) { sp.edit().apply { if (v == null) remove("spotify_access") else putString("spotify_access", v) }.apply() }
+
+    /** Quando o access token expira (epoch ms). */
+    var spotifyExpiresAt: Long
+        get() = sp.getLong("spotify_expires_at", 0L)
+        set(v) { sp.edit().putLong("spotify_expires_at", v).apply() }
+
+    /** Segredos do login em andamento (PKCE); apagados ao terminar. */
+    var spotifyVerifier: String?
+        get() = sp.getString("spotify_verifier", null)
+        set(v) { sp.edit().apply { if (v == null) remove("spotify_verifier") else putString("spotify_verifier", v) }.apply() }
+
+    var spotifyState: String?
+        get() = sp.getString("spotify_state", null)
+        set(v) { sp.edit().apply { if (v == null) remove("spotify_state") else putString("spotify_state", v) }.apply() }
+
+    /** Desconecta o Spotify (mantém o Client ID). */
+    fun clearSpotifyLogin() {
+        sp.edit().remove("spotify_refresh").remove("spotify_access").remove("spotify_expires_at")
+            .remove("spotify_verifier").remove("spotify_state").apply()
+    }
 }

@@ -27,6 +27,9 @@ object Ssap {
     /** Id do app Spotify na TV (Content Store). */
     const val SPOTIFY_TV_ID = "spotify-beehive"
 
+    /** Id do app YouTube (leanback) na TV webOS. */
+    const val YOUTUBE_TV_ID = "youtube.leanback.v4"
+
     /** Estados em que a tela está apagada e o certo é ACENDER. */
     private val SCREEN_DARK_STATES = setOf("screen off", "active standby")
 

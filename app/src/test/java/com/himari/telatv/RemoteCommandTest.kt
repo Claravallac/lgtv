@@ -1,10 +1,8 @@
 package com.himari.telatv
 
-import com.himari.telatv.data.MusicControl
 import com.himari.telatv.data.RemoteCommand
 import com.himari.telatv.data.Ssap
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -19,13 +17,18 @@ class RemoteCommandTest {
         assertEquals("MUTE", RemoteCommand.MUTE.button)
     }
 
-    @Test fun proximaEAnteriorPulamFaixaEmVezDeBuscar() {
+    @Test fun proximaEAnteriorNaoUsamBuscaDentroDaFaixa() {
         // FASTFORWARD/REWIND só avançam/voltam dentro da música.
         for (c in listOf(RemoteCommand.NEXT, RemoteCommand.PREVIOUS)) {
             assertTrue(c.button != "FASTFORWARD" && c.button != "REWIND")
         }
         assertEquals("CHANNELUP", RemoteCommand.NEXT.button)
         assertEquals("CHANNELDOWN", RemoteCommand.PREVIOUS.button)
+    }
+
+    @Test fun soProximaEAnteriorPulamFaixa() {
+        val pulam = RemoteCommand.entries.filter { it.skipsTrack }.toSet()
+        assertEquals(setOf(RemoteCommand.NEXT, RemoteCommand.PREVIOUS), pulam)
     }
 
     @Test fun direcionaisEConfirmarSaoBotoesDoControle() {
@@ -38,7 +41,7 @@ class RemoteCommandTest {
         assertEquals("HOME", RemoteCommand.HOME.button)
         for (c in listOf(RemoteCommand.UP, RemoteCommand.DOWN, RemoteCommand.LEFT, RemoteCommand.RIGHT,
             RemoteCommand.OK, RemoteCommand.BACK, RemoteCommand.HOME)) {
-            assertNull(c.phoneKeyCode)
+            assertTrue(!c.skipsTrack)
         }
     }
 
@@ -58,12 +61,10 @@ class RemoteCommandTest {
         }
     }
 
-    @Test fun teclasDeMidiaDoCelular() {
-        assertEquals(87, RemoteCommand.NEXT.phoneKeyCode)
-        assertEquals(88, RemoteCommand.PREVIOUS.phoneKeyCode)
-        assertEquals(126, RemoteCommand.PLAY.phoneKeyCode)
-        assertEquals(127, RemoteCommand.PAUSE.phoneKeyCode)
-        assertNull(RemoteCommand.VOLUME_UP.phoneKeyCode)
+    @Test fun idsDosAppsNaTv() {
+        assertEquals("spotify-beehive", Ssap.SPOTIFY_TV_ID)
+        assertEquals("youtube.leanback.v4", Ssap.YOUTUBE_TV_ID)
+        assertEquals("{\"id\":\"youtube.leanback.v4\"}", Ssap.launchPayload(Ssap.YOUTUBE_TV_ID))
     }
 
     @Test fun mensagemDeBotao() {
@@ -79,10 +80,5 @@ class RemoteCommandTest {
     @Test fun caminhoDoSocketComBarraEscapada() {
         val r = Ssap.parse("""{"type":"response","id":"r","payload":{"socketPath":"wss:\/\/10.0.0.2:3001\/resources\/x.sock"}}""")
         assertEquals("wss://10.0.0.2:3001/resources/x.sock", r.socketPath)
-    }
-
-    @Test fun controleDeMusicaPadraoENaTv() {
-        assertEquals(MusicControl.TV, MusicControl.fromName(null))
-        assertEquals(MusicControl.PHONE, MusicControl.fromName("PHONE"))
     }
 }

@@ -45,6 +45,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -54,6 +55,8 @@ import com.himari.telatv.Shortcuts
 import com.himari.telatv.TvViewModel
 import com.himari.telatv.UiState
 import com.himari.telatv.data.RemoteCommand
+import com.himari.telatv.data.SpotifyApi
+import com.himari.telatv.data.Ssap
 import kotlinx.coroutines.delay
 
 @Composable
@@ -137,6 +140,12 @@ private fun RemoteCard(vm: TvViewModel, ui: UiState) {
         }
     }
 
+    // Atalhos para abrir os apps na TV.
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        AppButton("YouTube", R.drawable.ic_smart_display) { vm.launchApp(Ssap.YOUTUBE_TV_ID) }
+        AppButton("Spotify", R.drawable.ic_music_note) { vm.launchApp(Ssap.SPOTIFY_TV_ID) }
+    }
+
     // Direcionais: Voltar | ↑ | Início, ← | Confirmar | →, ↓ (segurar repete).
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -166,6 +175,16 @@ private fun RemoteCard(vm: TvViewModel, ui: UiState) {
         RemoteButton(RemoteCommand.PLAY, R.drawable.ic_play_arrow, vm)
         RemoteButton(RemoteCommand.PAUSE, R.drawable.ic_pause, vm)
         RemoteButton(RemoteCommand.NEXT, R.drawable.ic_skip_next, vm)
+    }
+}
+
+/** Botão com ícone e nome que abre um app na TV. */
+@Composable
+private fun RowScope.AppButton(name: String, iconRes: Int, onClick: () -> Unit) {
+    FilledTonalButton(onClick = onClick, modifier = Modifier.weight(1f).height(64.dp)) {
+        Icon(painterResource(iconRes), contentDescription = null, modifier = Modifier.size(24.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(name, style = MaterialTheme.typography.titleMedium)
     }
 }
 
@@ -199,6 +218,36 @@ private fun RowScope.RemoteButton(cmd: RemoteCommand, iconRes: Int, vm: TvViewMo
         Button(onClick = onClick, modifier = modifier, contentPadding = padding, interactionSource = interaction) { icon() }
     } else {
         FilledTonalButton(onClick = onClick, modifier = modifier, contentPadding = padding, interactionSource = interaction) { icon() }
+    }
+}
+
+/** Login no Spotify para os botões de próxima/anterior pularem a faixa do player da TV. */
+@Composable
+private fun SpotifyLogin(vm: TvViewModel, ui: UiState) {
+    val uriHandler = LocalUriHandler.current
+    Text("Pular faixa (Spotify)", style = MaterialTheme.typography.titleSmall)
+    Text(
+        "O comando de pular faixa não existe na TV, então o app usa a API do Spotify (precisa de Premium). " +
+            "1) Em developer.spotify.com/dashboard crie um app e marque \"Web API\". " +
+            "2) Em Redirect URIs coloque exatamente ${SpotifyApi.REDIRECT_URI} e salve. " +
+            "3) Cole abaixo o Client ID e toque em Conectar. A música precisa estar tocando no Spotify da TV.",
+        style = MaterialTheme.typography.bodySmall
+    )
+    OutlinedTextField(
+        value = ui.spotifyClientId,
+        onValueChange = vm::setSpotifyClientId,
+        label = { Text("Client ID do Spotify") },
+        supportingText = { Text(if (ui.spotifyConnected) "Conectado." else "Ainda não conectado.") },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth()
+    )
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Button(onClick = { vm.spotifyLoginUrl()?.let { uriHandler.openUri(it) } }) {
+            Text(if (ui.spotifyConnected) "Reconectar" else "Conectar")
+        }
+        if (ui.spotifyConnected) {
+            OutlinedButton(onClick = vm::disconnectSpotify) { Text("Desconectar") }
+        }
     }
 }
 
@@ -259,15 +308,7 @@ private fun SetupCard(vm: TvViewModel, ui: UiState, hostText: String, onHost: (S
                 Text("Abrir o Spotify da TV ao apagar a tela", Modifier.weight(1f))
                 Switch(checked = ui.spotifyOnTv, onCheckedChange = vm::setSpotifyOnTv)
             }
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("Controlar a música pelo celular (play, pausa, próxima, anterior)", Modifier.weight(1f))
-                Switch(checked = ui.musicOnPhone, onCheckedChange = vm::setMusicOnPhone)
-            }
-            Text(
-                "Por padrão, próxima/anterior usam as teclas CH+/CH− da TV. Se não pularem a faixa, ligue esta opção: " +
-                    "ela usa as teclas de mídia do celular e funciona quando o Spotify do celular está controlando a música da TV (Spotify Connect).",
-                style = MaterialTheme.typography.bodySmall
-            )
+            SpotifyLogin(vm, ui)
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("Apagar a tela por SSH (TV com acesso root)", Modifier.weight(1f))
                 Switch(checked = ui.sshEnabled, onCheckedChange = vm::setSshEnabled)

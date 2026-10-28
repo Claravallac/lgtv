@@ -1,18 +1,8 @@
 package com.himari.telatv.data
 
-/** Onde mandar play/pausa/próxima/anterior: nos botões da TV ou no Spotify do celular. */
-enum class MusicControl(val label: String) {
-    TV("Na TV"),
-    PHONE("No celular");
-
-    companion object {
-        fun fromName(name: String?): MusicControl = entries.firstOrNull { it.name == name } ?: TV
-    }
-}
-
 /**
  * Comandos do controle. PURO. [uri] = comando SSAP; [button] = tecla do controle remoto
- * (enviada pelo socket de "ponteiro", ver TvClient.sendButton).
+ * (enviada pelo socket de "ponteiro", ver TvClient.sendButton). O app só controla a TV.
  */
 enum class RemoteCommand(val label: String, val uri: String? = null, val button: String? = null) {
     VOLUME_UP("Volume +", Ssap.URI_VOLUME_UP),
@@ -21,8 +11,9 @@ enum class RemoteCommand(val label: String, val uri: String? = null, val button:
     PLAY("Tocar", Ssap.URI_MEDIA_PLAY),
     PAUSE("Pausar", Ssap.URI_MEDIA_PAUSE),
 
-    // FASTFORWARD/REWIND só avançam/voltam dentro da faixa (era o bug). Pular de verdade:
-    // CH+/CH− (próximo/anterior em players de mídia do webOS) na TV, ou tecla de mídia no celular.
+    // FASTFORWARD/REWIND só avançam/voltam dentro da faixa (era o bug). Pular de verdade é pela
+    // API do Spotify (ver SpotifyApi/SpotifyClient), usada quando o Spotify está conectado; sem ela,
+    // tenta CH+/CH− da TV (palpite: próxima/anterior em players de mídia do webOS).
     NEXT("Próxima", button = "CHANNELUP"),
     PREVIOUS("Anterior", button = "CHANNELDOWN"),
 
@@ -43,13 +34,6 @@ enum class RemoteCommand(val label: String, val uri: String? = null, val button:
             else -> false
         }
 
-    /** Código de tecla de mídia do Android (usado quando o controle é "No celular"). */
-    val phoneKeyCode: Int?
-        get() = when (this) {
-            PLAY -> 126      // KEYCODE_MEDIA_PLAY
-            PAUSE -> 127     // KEYCODE_MEDIA_PAUSE
-            NEXT -> 87       // KEYCODE_MEDIA_NEXT
-            PREVIOUS -> 88   // KEYCODE_MEDIA_PREVIOUS
-            else -> null
-        }
+    /** Pular de faixa: precisa do player do Spotify (não existe comando de "pular" no SSAP da LG). */
+    val skipsTrack: Boolean get() = this == NEXT || this == PREVIOUS
 }
