@@ -69,6 +69,11 @@ class TvClient(private val host: String) : Closeable {
         if (uri != null) session.request(uri, cmd.payload) else sendButton(cmd.button!!)
     }
 
+    /** Abre o socket dos botões já (sem enviar nada), para o 1º toque não pagar essa espera. */
+    fun prepareButtons() {
+        if (pointer == null) pointer = openPointer()
+    }
+
     /** Envia um botão do controle remoto (abre o socket de "ponteiro" na 1ª vez). */
     fun sendButton(name: String) {
         val sock = pointer ?: openPointer().also { pointer = it }

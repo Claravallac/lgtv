@@ -4,9 +4,9 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -32,6 +33,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -44,12 +46,19 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import com.himari.telatv.R
 import com.himari.telatv.Shortcuts
 import com.himari.telatv.TvViewModel
@@ -57,13 +66,17 @@ import com.himari.telatv.UiState
 import com.himari.telatv.data.RemoteCommand
 import com.himari.telatv.data.SpotifyApi
 import com.himari.telatv.data.Ssap
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
 fun MainScreen(vm: TvViewModel) {
     val ui = vm.ui
     var hostText by rememberSaveable { mutableStateOf(ui.host) }
 
+    // Ao abrir/voltar ao app: conecta e abre o canal dos botões antes do 1º toque.
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { vm.warmUp() }
     // Primeiro uso: já procura a TV sozinho.
     LaunchedEffect(Unit) { if (!ui.paired && ui.host.isBlank()) vm.discover() }
     // Achou exatamente uma TV e o campo está vazio: preenche.
@@ -189,37 +202,81 @@ private fun RowScope.AppButton(name: String, iconRes: Int, onClick: () -> Unit) 
 }
 
 /**
- * Botão do controle com ícone Material. Comandos [RemoteCommand.repeatable] disparam ao tocar e
- * repetem enquanto o dedo segue pressionado; os demais disparam uma vez por toque.
+ * Botão do controle com ícone Material. Comandos [RemoteCommand.repeatable] viram [HoldRepeatButton]
+ * (disparam no instante do toque e repetem ao segurar); os demais disparam uma vez por toque.
  */
 @Composable
 private fun RowScope.RemoteButton(cmd: RemoteCommand, iconRes: Int, vm: TvViewModel, primary: Boolean = false) {
-    val interaction = remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
     if (cmd.repeatable) {
-        LaunchedEffect(pressed) {
-            if (pressed) {
-                vm.send(cmd)
-                delay(450)
-                while (true) {
-                    vm.send(cmd)
-                    delay(130)
-                }
-            }
-        }
+        HoldRepeatButton(cmd, iconRes, vm)
+        return
     }
-    val onClick: () -> Unit = if (cmd.repeatable) ({}) else ({ vm.send(cmd) })
     val modifier = Modifier.weight(1f).height(64.dp)
     val padding = PaddingValues(0.dp)
     val icon: @Composable () -> Unit = {
         Icon(painterResource(iconRes), contentDescription = cmd.label, modifier = Modifier.size(28.dp))
     }
     if (primary) {
-        Button(onClick = onClick, modifier = modifier, contentPadding = padding, interactionSource = interaction) { icon() }
+        Button(onClick = { vm.send(cmd) }, modifier = modifier, contentPadding = padding) { icon() }
     } else {
-        FilledTonalButton(onClick = onClick, modifier = modifier, contentPadding = padding, interactionSource = interaction) { icon() }
+        FilledTonalButton(onClick = { vm.send(cmd) }, modifier = modifier, contentPadding = padding) { icon() }
     }
 }
+
+/**
+ * Direcionais e volume. Dispara NO INSTANTE em que o dedo encosta e, se continuar segurando, repete
+ * (começa após [REPEAT_DELAY_MS], depois a cada [REPEAT_EVERY_MS]).
+ *
+ * Por que não um Button com onClick/"pressionado": a tela rola, e dentro de um contêiner rolável o Compose
+ * só marca o botão como pressionado depois de ~100 ms (para distinguir toque de rolagem). Um toque curto
+ * terminava antes disso, então o comando nunca era enviado e era preciso segurar. Aqui o gesto é lido
+ * direto no toque (detectTapGestures.onPress), sem esse atraso.
+ */
+@Composable
+private fun RowScope.HoldRepeatButton(cmd: RemoteCommand, iconRes: Int, vm: TvViewModel) {
+    var pressed by remember { mutableStateOf(false) }
+    val colors = ButtonDefaults.filledTonalButtonColors()
+    Surface(
+        modifier = Modifier
+            .weight(1f)
+            .height(64.dp)
+            .pointerInput(cmd, vm) {
+                detectTapGestures(onPress = {
+                    pressed = true
+                    vm.send(cmd)
+                    try {
+                        coroutineScope {
+                            val repeater = launch {
+                                delay(REPEAT_DELAY_MS)
+                                while (true) {
+                                    vm.send(cmd, repeat = true)
+                                    delay(REPEAT_EVERY_MS)
+                                }
+                            }
+                            tryAwaitRelease()   // solto ou cancelado (virou rolagem)
+                            repeater.cancel()
+                        }
+                    } finally {
+                        pressed = false
+                    }
+                })
+            }
+            .semantics(mergeDescendants = true) {
+                role = Role.Button
+                onClick(label = cmd.label) { vm.send(cmd); true }   // TalkBack / acessibilidade
+            },
+        shape = ButtonDefaults.shape,
+        color = if (pressed) MaterialTheme.colorScheme.secondary else colors.containerColor,
+        contentColor = if (pressed) MaterialTheme.colorScheme.onSecondary else colors.contentColor
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(painterResource(iconRes), contentDescription = cmd.label, modifier = Modifier.size(28.dp))
+        }
+    }
+}
+
+private const val REPEAT_DELAY_MS = 400L
+private const val REPEAT_EVERY_MS = 110L
 
 /** Login no Spotify para os botões de próxima/anterior pularem a faixa do player da TV. */
 @Composable

@@ -19,6 +19,7 @@ import com.himari.telatv.data.SsapScreen
 import com.himari.telatv.net.TvDiscovery
 import com.himari.telatv.net.sshScreen
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 
 data class UiState(
@@ -51,6 +52,7 @@ class TvViewModel(app: Application) : AndroidViewModel(app) {
     private val io = Executors.newSingleThreadExecutor()
     private var client: TvClient? = null   // só mexer dentro de [io]
     private val spotify = SpotifyClient(prefs)
+    private val repeatBusy = AtomicBoolean(false)   // há uma repetição de botão segurado na fila
 
     var ui by mutableStateOf(
         UiState(
@@ -145,7 +147,13 @@ class TvViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun send(cmd: RemoteCommand) {
+    /**
+     * [repeat] = repetição de um botão segurado. Só entra na fila se a anterior já saiu dela; senão, com a
+     * TV respondendo mais devagar que o ritmo da repetição, os comandos se acumulariam e continuariam
+     * chegando à TV um tempo depois de soltar o botão.
+     */
+    fun send(cmd: RemoteCommand, repeat: Boolean = false) {
+        if (repeat && !repeatBusy.compareAndSet(false, true)) return
         io.execute {
             try {
                 if (cmd.skipsTrack && prefs.spotifyRefreshToken != null) {
@@ -156,6 +164,22 @@ class TvViewModel(app: Application) : AndroidViewModel(app) {
                 if (ui.message != null) update { it.copy(message = null) }
             } catch (e: Exception) {
                 fail(e)
+            } finally {
+                if (repeat) repeatBusy.set(false)
+            }
+        }
+    }
+
+    /**
+     * Abre a conexão e o canal dos botões ANTES do primeiro toque (o canal é um 2º WebSocket e abri-lo
+     * na hora custava meio segundo ou mais no 1º botão). Silencioso: se falhar, o toque tenta de novo.
+     */
+    fun warmUp() {
+        if (prefs.clientKey == null) return        // sem pareamento (modo SSH) não há canal de botões
+        io.execute {
+            try {
+                withClient { it.prepareButtons() }
+            } catch (_: Exception) {
             }
         }
     }
