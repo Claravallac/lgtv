@@ -4,6 +4,9 @@
     <!-- Busca da TV na rede (SSDP) -->
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+    <!-- Emissor de infravermelho do celular (permissão normal, concedida na instalação) -->
+    <uses-permission android:name="android.permission.TRANSMIT_IR" />
+    <uses-feature android:name="android.hardware.consumerir" android:required="false" />
 
     <!-- Android 11+: necessário para o celular achar o Spotify instalado -->
     <queries>

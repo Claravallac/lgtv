@@ -1,10 +1,13 @@
 package com.himari.telatv
 
 import android.app.Application
+import android.content.Context
+import android.hardware.ConsumerIrManager
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
+import com.himari.telatv.data.LgIr
 import com.himari.telatv.data.Prefs
 import com.himari.telatv.data.RemoteCommand
 import com.himari.telatv.data.ScreenDriver
@@ -37,10 +40,18 @@ data class UiState(
     val sshUser: String = "root",
     val sshPort: String = "22",
     val sshPassword: String = "",
-    val sshKey: String = ""
+    val sshKey: String = "",
+    val irAvailable: Boolean = false,   // o celular tem emissor de infravermelho
+    val irEnabled: Boolean = false      // opção ligada pelo usuário
 ) {
-    /** Pode mostrar o controle: pareado (SSAP) ou com SSH ligado e IP salvo (TV com root não precisa parear). */
-    val ready: Boolean get() = paired || (sshEnabled && host.isNotBlank())
+    /** Botões saem pelo infravermelho (opção ligada E o celular tem emissor). */
+    val irActive: Boolean get() = irEnabled && irAvailable
+
+    /**
+     * Pode mostrar o controle: pareado (SSAP), com SSH ligado e IP salvo (TV com root não precisa parear)
+     * ou com o infravermelho ativo (não precisa de rede nenhuma).
+     */
+    val ready: Boolean get() = paired || (sshEnabled && host.isNotBlank()) || irActive
 }
 
 /**
@@ -54,6 +65,11 @@ class TvViewModel(app: Application) : AndroidViewModel(app) {
     private val spotify = SpotifyClient(prefs)
     private val repeatBusy = AtomicBoolean(false)   // há uma repetição de botão segurado na fila
 
+    // Infravermelho: thread própria (transmitir leva ~70 ms e não deve esperar a fila da rede).
+    private val irManager = app.getSystemService(Context.CONSUMER_IR_SERVICE) as? ConsumerIrManager
+    private val irIo = Executors.newSingleThreadExecutor()
+    private val irRepeatBusy = AtomicBoolean(false)
+
     var ui by mutableStateOf(
         UiState(
             host = prefs.host,
@@ -65,7 +81,9 @@ class TvViewModel(app: Application) : AndroidViewModel(app) {
             sshUser = prefs.sshUser,
             sshPort = prefs.sshPort.toString(),
             sshPassword = prefs.sshPassword,
-            sshKey = prefs.sshKey
+            sshKey = prefs.sshKey,
+            irAvailable = try { irManager?.hasIrEmitter() == true } catch (e: Exception) { false },
+            irEnabled = prefs.irEnabled
         )
     )
         private set
@@ -153,6 +171,15 @@ class TvViewModel(app: Application) : AndroidViewModel(app) {
      * chegando à TV um tempo depois de soltar o botão.
      */
     fun send(cmd: RemoteCommand, repeat: Boolean = false) {
+        // Modo infravermelho: os botões que o controle IR da LG tem saem pelo emissor, sem rede.
+        // Próxima/anterior não existem em IR e seguem pelo caminho normal (Spotify/TV).
+        if (ui.irActive) {
+            val code = LgIr.codeFor(cmd)
+            if (code != null) {
+                transmitIr(code, repeat)
+                return
+            }
+        }
         if (repeat && !repeatBusy.compareAndSet(false, true)) return
         io.execute {
             try {
@@ -168,6 +195,31 @@ class TvViewModel(app: Application) : AndroidViewModel(app) {
                 if (repeat) repeatBusy.set(false)
             }
         }
+    }
+
+    /** Liga/desliga a TV pelo infravermelho (alterna, como o botão do controle original). */
+    fun power() {
+        if (ui.irActive) transmitIr(LgIr.POWER, repeat = false)
+    }
+
+    /** Transmite um quadro NEC da LG. [repeat] = repetição de botão segurado (não acumula na fila). */
+    private fun transmitIr(code: Int, repeat: Boolean) {
+        val ir = irManager ?: return
+        if (repeat && !irRepeatBusy.compareAndSet(false, true)) return
+        irIo.execute {
+            try {
+                ir.transmit(LgIr.CARRIER_HZ, LgIr.frame(code))
+            } catch (e: Exception) {
+                update { it.copy(message = "Não consegui enviar pelo infravermelho: ${e.message ?: e.javaClass.simpleName}") }
+            } finally {
+                if (repeat) irRepeatBusy.set(false)
+            }
+        }
+    }
+
+    fun setIrEnabled(on: Boolean) {
+        prefs.irEnabled = on
+        update { it.copy(irEnabled = on) }
     }
 
     /**
@@ -355,6 +407,7 @@ class TvViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     override fun onCleared() {
+        irIo.shutdown()
         spotify.close()
         io.execute { closeClient() }
         io.shutdown()

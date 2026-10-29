@@ -137,19 +137,40 @@ private fun RemoteCard(vm: TvViewModel, ui: UiState) {
         false -> "Apagar tela"
         null -> "Apagar / acender tela"
     }
-    Button(
-        onClick = vm::toggleScreen,
-        enabled = !ui.busy,
-        modifier = Modifier.fillMaxWidth().height(96.dp),
-        shape = RoundedCornerShape(28.dp)
-    ) {
-        if (ui.busy) {
-            CircularProgressIndicator(Modifier.size(28.dp), color = LocalContentColor.current, strokeWidth = 3.dp)
-        } else {
-            val icon = if (ui.screenOff == true) R.drawable.ic_tv else R.drawable.ic_tv_off
-            Icon(painterResource(icon), contentDescription = null, modifier = Modifier.size(32.dp))
-            Spacer(Modifier.width(12.dp))
-            Text(label, style = MaterialTheme.typography.titleLarge)
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Button(
+            onClick = vm::toggleScreen,
+            enabled = !ui.busy,
+            modifier = Modifier.weight(1f).height(96.dp),
+            shape = RoundedCornerShape(28.dp)
+        ) {
+            if (ui.busy) {
+                CircularProgressIndicator(Modifier.size(28.dp), color = LocalContentColor.current, strokeWidth = 3.dp)
+            } else {
+                val icon = if (ui.screenOff == true) R.drawable.ic_tv else R.drawable.ic_tv_off
+                Icon(painterResource(icon), contentDescription = null, modifier = Modifier.size(32.dp))
+                Spacer(Modifier.width(12.dp))
+                Text(label, style = MaterialTheme.typography.titleLarge)
+            }
+        }
+        // Liga/desliga a TV por infravermelho (só no modo IR; a rede não consegue ligar a TV desligada).
+        if (ui.irActive) {
+            FilledTonalButton(
+                onClick = vm::power,
+                modifier = Modifier.size(96.dp),
+                shape = RoundedCornerShape(28.dp),
+                contentPadding = PaddingValues(0.dp),
+                colors = ButtonDefaults.filledTonalButtonColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                    contentColor = MaterialTheme.colorScheme.onErrorContainer
+                )
+            ) {
+                Icon(
+                    painterResource(R.drawable.ic_power_settings_new),
+                    contentDescription = "Ligar ou desligar a TV (infravermelho)",
+                    modifier = Modifier.size(36.dp)
+                )
+            }
         }
     }
 
@@ -366,6 +387,23 @@ private fun SetupCard(vm: TvViewModel, ui: UiState, hostText: String, onHost: (S
                 Switch(checked = ui.spotifyOnTv, onCheckedChange = vm::setSpotifyOnTv)
             }
             SpotifyLogin(vm, ui)
+            if (ui.irAvailable) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Enviar pelo infravermelho (aponte o celular para a TV)", Modifier.weight(1f))
+                    Switch(checked = ui.irEnabled, onCheckedChange = vm::setIrEnabled)
+                }
+                Text(
+                    "Ligado: direcionais, Confirmar, Voltar, Início, volume, mudo, play e pausa saem pelo emissor IR do " +
+                        "celular, sem rede e sem atraso, e aparece um botão para ligar/desligar a TV. Apagar a tela, " +
+                        "YouTube, Spotify e pular faixa continuam pela rede. O botão de ligar alterna, como o do controle original.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            } else {
+                Text(
+                    "Infravermelho indisponível: este celular não expõe um emissor IR para o app.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("Apagar a tela por SSH (TV com acesso root)", Modifier.weight(1f))
                 Switch(checked = ui.sshEnabled, onCheckedChange = vm::setSshEnabled)

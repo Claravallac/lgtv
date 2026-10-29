@@ -53,6 +53,11 @@ class Prefs(context: Context) {
         get() = sp.getString("ssh_key", "") ?: ""
         set(v) { sp.edit().putString("ssh_key", v).apply() }
 
+    /** Mandar os botões pelo emissor de infravermelho do celular (apontado para a TV), em vez da rede. */
+    var irEnabled: Boolean
+        get() = sp.getBoolean("ir_enabled", false)
+        set(v) { sp.edit().putBoolean("ir_enabled", v).apply() }
+
     // --- Spotify Web API (login PKCE, sem segredo): pular faixa no player da TV por Spotify Connect ---
 
     var spotifyClientId: String
